@@ -1,0 +1,18 @@
+{
+  "type": "record",
+  "name": "SeekPayload",
+  "namespace": "com.netflix.playback.avro",
+  "doc": "Payload for SEEK events",
+  "fields": [
+    {
+      "name": "fromPosition",
+      "type": "long",
+      "doc": "Position before seek (milliseconds)"
+    },
+    {
+      "name": "toPosition",
+      "type": "long",
+      "doc": "Position after seek (milliseconds)"
+    }
+  ]
+}

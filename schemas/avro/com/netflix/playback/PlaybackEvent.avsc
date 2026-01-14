@@ -1,0 +1,95 @@
+{
+  "type": "record",
+  "name": "PlaybackEvent",
+  "namespace": "com.netflix.playback.avro",
+  "doc": "Core playback event model representing any user interaction with video playback",
+  "fields": [
+    {
+      "name": "eventId",
+      "type": "string",
+      "doc": "Unique identifier for this event (UUID)"
+    },
+    {
+      "name": "eventType",
+      "type": "com.netflix.playback.avro.EventType",
+      "doc": "Type of playback event"
+    },
+    {
+      "name": "timestamp",
+      "type": {
+        "type": "long",
+        "logicalType": "timestamp-millis"
+      },
+      "doc": "Timestamp when event occurred on the client (milliseconds since epoch)"
+    },
+    {
+      "name": "userId",
+      "type": "string",
+      "doc": "User account identifier"
+    },
+    {
+      "name": "profileId",
+      "type": ["null", "string"],
+      "default": null,
+      "doc": "Profile within the user account"
+    },
+    {
+      "name": "deviceId",
+      "type": "string",
+      "doc": "Unique device identifier"
+    },
+    {
+      "name": "sessionId",
+      "type": "string",
+      "doc": "Session identifier (unique per playback session)"
+    },
+    {
+      "name": "contentId",
+      "type": "string",
+      "doc": "Content being watched"
+    },
+    {
+      "name": "contentType",
+      "type": ["null", "string"],
+      "default": null,
+      "doc": "Type of content (movie, episode, trailer, etc.)"
+    },
+    {
+      "name": "title",
+      "type": ["null", "string"],
+      "default": null,
+      "doc": "Content title for display"
+    },
+    {
+      "name": "position",
+      "type": ["null", "long"],
+      "default": null,
+      "doc": "Current playback position (milliseconds)"
+    },
+    {
+      "name": "duration",
+      "type": ["null", "long"],
+      "default": null,
+      "doc": "Total content duration (milliseconds)"
+    },
+    {
+      "name": "deviceInfo",
+      "type": ["null", "com.netflix.playback.avro.DeviceInfo"],
+      "default": null,
+      "doc": "Device information"
+    },
+    {
+      "name": "payload",
+      "type": [
+        "null",
+        "com.netflix.playback.avro.SeekPayload",
+        "com.netflix.playback.avro.QualityChangePayload",
+        "com.netflix.playback.avro.RebufferPayload",
+        "com.netflix.playback.avro.PlaybackEndPayload",
+        "com.netflix.playback.avro.ProgressPayload"
+      ],
+      "default": null,
+      "doc": "Event-specific payload data (union type)"
+    }
+  ]
+}

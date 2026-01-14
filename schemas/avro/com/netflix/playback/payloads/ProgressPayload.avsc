@@ -1,0 +1,53 @@
+{
+  "type": "record",
+  "name": "ProgressPayload",
+  "namespace": "com.netflix.playback.avro",
+  "doc": "Payload for PROGRESS (heartbeat) events",
+  "fields": [
+    {
+      "name": "bufferLength",
+      "type": "long",
+      "doc": "Current buffer length (milliseconds)"
+    },
+    {
+      "name": "currentQuality",
+      "type": "com.netflix.playback.avro.VideoQuality",
+      "doc": "Current video quality"
+    },
+    {
+      "name": "currentBitrate",
+      "type": "int",
+      "doc": "Current bitrate (kbps)"
+    },
+    {
+      "name": "droppedFrames",
+      "type": "int",
+      "default": 0,
+      "doc": "Number of frames dropped since last progress event"
+    },
+    {
+      "name": "playbackRate",
+      "type": "double",
+      "default": 1.0,
+      "doc": "Playback rate (1.0 = normal speed)"
+    },
+    {
+      "name": "audioLanguage",
+      "type": ["null", "string"],
+      "default": null,
+      "doc": "Current audio language code"
+    },
+    {
+      "name": "subtitleLanguage",
+      "type": ["null", "string"],
+      "default": null,
+      "doc": "Current subtitle language code (null if disabled)"
+    },
+    {
+      "name": "subtitlesEnabled",
+      "type": "boolean",
+      "default": false,
+      "doc": "Whether subtitles are enabled"
+    }
+  ]
+}

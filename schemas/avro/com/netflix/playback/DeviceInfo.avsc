@@ -1,0 +1,67 @@
+{
+  "type": "record",
+  "name": "DeviceInfo",
+  "namespace": "com.netflix.playback.avro",
+  "doc": "Information about the device emitting playback events",
+  "fields": [
+    {
+      "name": "deviceType",
+      "type": "com.netflix.playback.avro.DeviceType",
+      "doc": "Type of device"
+    },
+    {
+      "name": "deviceId",
+      "type": ["null", "string"],
+      "default": null,
+      "doc": "Unique device identifier"
+    },
+    {
+      "name": "deviceModel",
+      "type": ["null", "string"],
+      "default": null,
+      "doc": "Device model (e.g., iPhone 15 Pro, Samsung Galaxy S24)"
+    },
+    {
+      "name": "osName",
+      "type": ["null", "string"],
+      "default": null,
+      "doc": "Operating system name"
+    },
+    {
+      "name": "osVersion",
+      "type": ["null", "string"],
+      "default": null,
+      "doc": "Operating system version"
+    },
+    {
+      "name": "appVersion",
+      "type": ["null", "string"],
+      "default": null,
+      "doc": "Application version"
+    },
+    {
+      "name": "ipAddress",
+      "type": ["null", "string"],
+      "default": null,
+      "doc": "Client IP address"
+    },
+    {
+      "name": "country",
+      "type": ["null", "string"],
+      "default": null,
+      "doc": "Country code (ISO 3166-1 alpha-2)"
+    },
+    {
+      "name": "region",
+      "type": ["null", "string"],
+      "default": null,
+      "doc": "Region/state code"
+    },
+    {
+      "name": "city",
+      "type": ["null", "string"],
+      "default": null,
+      "doc": "City name"
+    }
+  ]
+}

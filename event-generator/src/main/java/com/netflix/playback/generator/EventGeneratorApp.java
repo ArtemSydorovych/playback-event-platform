@@ -1,48 +1,53 @@
 package com.netflix.playback.generator;
 
-import com.netflix.playback.model.PlaybackEvent;
+import com.netflix.playback.avro.PlaybackEvent;
+import com.netflix.playback.config.KafkaConfig;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 /**
- * Main application to generate and send playback events to Kafka.
+ * Main application to generate and publish playback events to Kafka.
+ * <p>
+ * Usage:
+ *   gradlew :event-generator:run
+ *   gradlew :event-generator:run --args="--count 50 --delay 200"
  */
 public class EventGeneratorApp {
 
     private static final Logger log = LoggerFactory.getLogger(EventGeneratorApp.class);
 
-    private static final String BOOTSTRAP_SERVERS = System.getenv()
-        .getOrDefault("KAFKA_BOOTSTRAP_SERVERS", "localhost:9092");
-    private static final String TOPIC = System.getenv()
-        .getOrDefault("KAFKA_TOPIC", "playback-events");
-    private static final int EVENT_COUNT = Integer.parseInt(System.getenv()
-        .getOrDefault("EVENT_COUNT", "100"));
-    private static final int DELAY_MS = Integer.parseInt(System.getenv()
-        .getOrDefault("DELAY_MS", "100"));
+    private static final int DEFAULT_EVENT_COUNT = 100;
+    private static final int DEFAULT_DELAY_MS = 100;
 
     public static void main(String[] args) {
-        log.info("Starting Event Generator");
-        log.info("Bootstrap servers: {}", BOOTSTRAP_SERVERS);
-        log.info("Topic: {}", TOPIC);
-        log.info("Event count: {}", EVENT_COUNT);
-        log.info("Delay between events: {}ms", DELAY_MS);
+        int eventCount = getIntArg(args, "--count", DEFAULT_EVENT_COUNT);
+        int delayMs = getIntArg(args, "--delay", DEFAULT_DELAY_MS);
 
-        try (SimpleEventProducer producer = new SimpleEventProducer(BOOTSTRAP_SERVERS, TOPIC)) {
-            for (int i = 0; i < EVENT_COUNT; i++) {
-                PlaybackEvent event = EventSimulator.generateRandomEvent();
-                producer.send(event);
+        log.info("=== Playback Event Generator ===");
+        log.info("Bootstrap: {}", KafkaConfig.BOOTSTRAP_SERVERS);
+        log.info("Schema Registry: {}", KafkaConfig.SCHEMA_REGISTRY_URL);
+        log.info("Topic: {}", KafkaConfig.TOPIC_PLAYBACK_EVENTS);
+        log.info("Events: {}, Delay: {}ms", eventCount, delayMs);
+
+        PlaybackActivityGenerator generator = new PlaybackActivityGenerator();
+
+        try (PlaybackEventPublisher publisher = new PlaybackEventPublisher()) {
+            for (int i = 0; i < eventCount; i++) {
+                PlaybackEvent event = generator.generate();
+                publisher.publish(event);
 
                 if ((i + 1) % 10 == 0) {
-                    log.info("Sent {} events...", i + 1);
+                    log.info("Published {} events...", i + 1);
                 }
 
-                if (DELAY_MS > 0) {
-                    Thread.sleep(DELAY_MS);
+                if (delayMs > 0) {
+                    Thread.sleep(delayMs);
                 }
             }
 
-            producer.flush();
-            log.info("Completed! Sent: {}, Errors: {}", producer.getSentCount(), producer.getErrorCount());
+            publisher.flush();
+            log.info("Completed! Published: {}, Failed: {}",
+                    publisher.getPublishedCount(), publisher.getFailedCount());
 
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
@@ -50,5 +55,18 @@ public class EventGeneratorApp {
         } catch (Exception e) {
             log.error("Error: {}", e.getMessage(), e);
         }
+    }
+
+    private static int getIntArg(String[] args, String flag, int defaultValue) {
+        for (int i = 0; i < args.length - 1; i++) {
+            if (args[i].equals(flag)) {
+                try {
+                    return Integer.parseInt(args[i + 1]);
+                } catch (NumberFormatException e) {
+                    return defaultValue;
+                }
+            }
+        }
+        return defaultValue;
     }
 }

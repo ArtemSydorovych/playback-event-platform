@@ -1,39 +1,34 @@
 package com.netflix.playback.consumer;
 
-import com.netflix.playback.model.PlaybackEvent;
+import com.netflix.playback.avro.*;
+import com.netflix.playback.config.KafkaConfig;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 /**
  * Main application that consumes playback events and prints them to console.
+ * <p>
+ * Usage:
+ *   gradlew :event-consumer:run
  */
 public class ConsoleConsumerApp {
 
     private static final Logger log = LoggerFactory.getLogger(ConsoleConsumerApp.class);
 
-    private static final String BOOTSTRAP_SERVERS = System.getenv()
-        .getOrDefault("KAFKA_BOOTSTRAP_SERVERS", "localhost:9092");
-    private static final String GROUP_ID = System.getenv()
-        .getOrDefault("KAFKA_GROUP_ID", "console-printer-group");
-    private static final String TOPIC = System.getenv()
-        .getOrDefault("KAFKA_TOPIC", "playback-events");
-
     public static void main(String[] args) {
-        log.info("Starting Console Consumer");
-        log.info("Bootstrap servers: {}", BOOTSTRAP_SERVERS);
-        log.info("Group ID: {}", GROUP_ID);
-        log.info("Topic: {}", TOPIC);
+        log.info("=== Playback Event Consumer ===");
+        log.info("Bootstrap: {}", KafkaConfig.BOOTSTRAP_SERVERS);
+        log.info("Schema Registry: {}", KafkaConfig.SCHEMA_REGISTRY_URL);
+        log.info("Topic: {}", KafkaConfig.TOPIC_PLAYBACK_EVENTS);
+        log.info("Group: {}", KafkaConfig.CONSUMER_GROUP_CONSOLE);
 
-        try (SimpleEventConsumer consumer = new SimpleEventConsumer(BOOTSTRAP_SERVERS, GROUP_ID, TOPIC)) {
-
-            // Add shutdown hook for graceful stop
+        try (PlaybackEventProcessor processor = new PlaybackEventProcessor()) {
             Runtime.getRuntime().addShutdownHook(new Thread(() -> {
                 log.info("Shutdown signal received...");
-                consumer.stop();
+                processor.stop();
             }));
 
-            // Start consuming and print events
-            consumer.consume(ConsoleConsumerApp::printEvent);
+            processor.process(ConsoleConsumerApp::printEvent);
 
         } catch (Exception e) {
             log.error("Error: {}", e.getMessage(), e);
@@ -42,52 +37,65 @@ public class ConsoleConsumerApp {
 
     private static void printEvent(PlaybackEvent event) {
         System.out.println();
-        System.out.println("═══════════════════════════════════════════════════════════");
-        System.out.printf(" Event: %-15s │ User: %-10s │ Content: %s%n",
-            event.getEventType(),
-            event.getUserId(),
-            event.getContentId());
-        System.out.println("───────────────────────────────────────────────────────────");
-        System.out.printf(" Position: %s │ Progress: %.1f%%%n",
-            event.getFormattedPosition(),
-            event.getCompletionPercentage());
-        System.out.printf(" Device: %-12s │ Country: %s%n",
-            event.getDeviceInfo() != null ? event.getDeviceInfo().getDeviceType() : "N/A",
-            event.getDeviceInfo() != null ? event.getDeviceInfo().getCountry() : "N/A");
-        System.out.printf(" Session: %s │ Time: %s%n",
-            event.getSessionId(),
-            event.getTimestamp());
+        System.out.println("===============================================================");
+        System.out.printf(" Event: %-15s | User: %-10s | Content: %s%n",
+                event.getEventType(),
+                event.getUserId(),
+                event.getContentId());
+        System.out.println("---------------------------------------------------------------");
 
-        if (event.getPayload() != null) {
-            System.out.println("───────────────────────────────────────────────────────────");
-            if (event.getPayload().getSeek() != null) {
-                var seek = event.getPayload().getSeek();
-                System.out.printf(" Seek: %s -> %s (%s)%n",
-                    formatMs(seek.getFromPosition()),
-                    formatMs(seek.getToPosition()),
-                    seek.isForwardSeek() ? "forward" : "backward");
-            }
-            if (event.getPayload().getProgress() != null) {
-                var progress = event.getPayload().getProgress();
-                System.out.printf(" Quality: %s @ %d kbps │ Buffer: %dms%n",
+        Long position = event.getPosition();
+        Long duration = event.getDuration();
+        double completion = (position != null && duration != null && duration > 0)
+                ? (position * 100.0 / duration) : 0;
+
+        System.out.printf(" Position: %s | Progress: %.1f%%%n",
+                position != null ? formatMs(position) : "N/A",
+                completion);
+
+        DeviceInfo deviceInfo = event.getDeviceInfo();
+        System.out.printf(" Device: %-12s | Country: %s%n",
+                deviceInfo != null ? deviceInfo.getDeviceType() : "N/A",
+                deviceInfo != null ? deviceInfo.getCountry() : "N/A");
+        System.out.printf(" Session: %s%n", event.getSessionId());
+        System.out.printf(" Time: %s%n", event.getTimestamp());
+
+        Object payload = event.getPayload();
+        if (payload != null) {
+            System.out.println("---------------------------------------------------------------");
+            printPayload(payload);
+        }
+        System.out.println("===============================================================");
+    }
+
+    private static void printPayload(Object payload) {
+        if (payload instanceof SeekPayload seek) {
+            long from = seek.getFromPosition();
+            long to = seek.getToPosition();
+            String direction = to > from ? "forward" : "backward";
+            System.out.printf(" Seek: %s -> %s (%s)%n",
+                    formatMs(from), formatMs(to), direction);
+        } else if (payload instanceof ProgressPayload progress) {
+            System.out.printf(" Quality: %s @ %d kbps | Buffer: %dms%n",
                     progress.getCurrentQuality(),
                     progress.getCurrentBitrate(),
                     progress.getBufferLength());
-            }
-            if (event.getPayload().getPlaybackEnd() != null) {
-                var end = event.getPayload().getPlaybackEnd();
-                System.out.printf(" End Reason: %s │ Watched: %s (%.1f%%)%n",
+        } else if (payload instanceof PlaybackEndPayload end) {
+            System.out.printf(" End Reason: %s | Watched: %s (%.1f%%)%n",
                     end.getReason(),
-                    formatMs(end.getWatchDuration()),
+                    formatMs(end.getTotalWatchTime()),
                     end.getCompletionPercentage());
-            }
-            if (event.getPayload().getQualityChange() != null) {
-                var qc = event.getPayload().getQualityChange();
-                System.out.printf(" Quality: %s -> %s │ Reason: %s%n",
-                    qc.getOldQuality(), qc.getNewQuality(), qc.getReason());
+        } else if (payload instanceof QualityChangePayload qc) {
+            System.out.printf(" Quality: %s -> %s | Bitrate: %d -> %d kbps%n",
+                    qc.getOldQuality(), qc.getNewQuality(),
+                    qc.getOldBitrate(), qc.getNewBitrate());
+        } else if (payload instanceof RebufferPayload rb) {
+            System.out.printf(" Rebuffer | Buffer: %dms | Bandwidth: %d kbps%n",
+                    rb.getBufferLength(), rb.getBandwidthEstimate());
+            if (rb.getRebufferDuration() != null) {
+                System.out.printf(" Rebuffer Duration: %dms%n", rb.getRebufferDuration());
             }
         }
-        System.out.println("═══════════════════════════════════════════════════════════");
     }
 
     private static String formatMs(long ms) {

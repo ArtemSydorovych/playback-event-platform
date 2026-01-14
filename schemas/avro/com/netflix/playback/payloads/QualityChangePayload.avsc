@@ -1,0 +1,40 @@
+{
+  "type": "record",
+  "name": "QualityChangePayload",
+  "namespace": "com.netflix.playback.avro",
+  "doc": "Payload for QUALITY_CHANGE events",
+  "fields": [
+    {
+      "name": "oldQuality",
+      "type": "com.netflix.playback.avro.VideoQuality",
+      "doc": "Quality before change"
+    },
+    {
+      "name": "newQuality",
+      "type": "com.netflix.playback.avro.VideoQuality",
+      "doc": "Quality after change"
+    },
+    {
+      "name": "oldBitrate",
+      "type": "int",
+      "doc": "Bitrate before change (kbps)"
+    },
+    {
+      "name": "newBitrate",
+      "type": "int",
+      "doc": "Bitrate after change (kbps)"
+    },
+    {
+      "name": "reason",
+      "type": ["null", "string"],
+      "default": null,
+      "doc": "Reason for quality change"
+    },
+    {
+      "name": "automatic",
+      "type": "boolean",
+      "default": true,
+      "doc": "Whether this was an automatic adaptive bitrate change"
+    }
+  ]
+}

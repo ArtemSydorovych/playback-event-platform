@@ -1,0 +1,30 @@
+{
+  "type": "record",
+  "name": "RebufferPayload",
+  "namespace": "com.netflix.playback.avro",
+  "doc": "Payload for REBUFFER_START and REBUFFER_END events",
+  "fields": [
+    {
+      "name": "bufferLength",
+      "type": "long",
+      "doc": "Buffer length when rebuffering started (milliseconds)"
+    },
+    {
+      "name": "rebufferDuration",
+      "type": ["null", "long"],
+      "default": null,
+      "doc": "Duration of rebuffering (milliseconds, only populated for REBUFFER_END)"
+    },
+    {
+      "name": "bandwidthEstimate",
+      "type": "int",
+      "doc": "Current bandwidth estimate (kbps)"
+    },
+    {
+      "name": "networkType",
+      "type": ["null", "string"],
+      "default": null,
+      "doc": "Network type (wifi, cellular, ethernet)"
+    }
+  ]
+}

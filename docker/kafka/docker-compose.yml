@@ -1,3 +1,5 @@
+
+
 services:
   zookeeper:
     image: confluentinc/cp-zookeeper:7.5.3
@@ -17,6 +19,8 @@ services:
       timeout: 5s
       retries: 5
       start_period: 10s
+    networks:
+      - playback-network
 
   kafka:
     image: confluentinc/cp-kafka:7.5.3
@@ -47,6 +51,8 @@ services:
       timeout: 10s
       retries: 5
       start_period: 30s
+    networks:
+      - playback-network
 
   kafka-ui:
     image: provectuslabs/kafka-ui:v0.7.1
@@ -56,9 +62,12 @@ services:
     environment:
       KAFKA_CLUSTERS_0_NAME: local
       KAFKA_CLUSTERS_0_BOOTSTRAPSERVERS: kafka:29092
+      KAFKA_CLUSTERS_0_SCHEMAREGISTRY: http://schema-registry:8081
     depends_on:
       kafka:
         condition: service_healthy
+    networks:
+      - playback-network
 
   kafka-init:
     image: confluentinc/cp-kafka:7.5.3
@@ -74,6 +83,8 @@ services:
         echo 'Topics:'
         kafka-topics --bootstrap-server kafka:29092 --list
       "
+    networks:
+      - playback-network
 
 volumes:
   zookeeper-data:
