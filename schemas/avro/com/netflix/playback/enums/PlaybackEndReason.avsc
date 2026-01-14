@@ -1,0 +1,14 @@
+{
+  "type": "enum",
+  "name": "PlaybackEndReason",
+  "namespace": "com.netflix.playback.avro",
+  "doc": "Reasons why playback ended",
+  "symbols": [
+    "COMPLETED",
+    "USER_STOPPED",
+    "USER_EXIT",
+    "ERROR",
+    "NETWORK_ERROR",
+    "APP_TERMINATED"
+  ]
+}

@@ -1,0 +1,14 @@
+{
+  "type": "enum",
+  "name": "VideoQuality",
+  "namespace": "com.netflix.playback.avro",
+  "doc": "Video quality levels",
+  "symbols": [
+    "AUTO",
+    "SD_480P",
+    "HD_720P",
+    "HD_1080P",
+    "UHD_4K",
+    "UHD_8K"
+  ]
+}

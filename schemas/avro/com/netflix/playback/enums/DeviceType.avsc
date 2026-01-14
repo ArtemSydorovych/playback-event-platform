@@ -1,0 +1,14 @@
+{
+  "type": "enum",
+  "name": "DeviceType",
+  "namespace": "com.netflix.playback.avro",
+  "doc": "Types of devices that can emit playback events",
+  "symbols": [
+    "IOS",
+    "ANDROID",
+    "WEB",
+    "SMART_TV",
+    "GAMING_CONSOLE",
+    "SET_TOP_BOX"
+  ]
+}

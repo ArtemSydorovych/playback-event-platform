@@ -1,0 +1,17 @@
+{
+  "type": "enum",
+  "name": "EventType",
+  "namespace": "com.netflix.playback.avro",
+  "doc": "Types of playback events that can be emitted by video players",
+  "symbols": [
+    "PLAY_START",
+    "PAUSE",
+    "RESUME",
+    "SEEK",
+    "PROGRESS",
+    "QUALITY_CHANGE",
+    "REBUFFER_START",
+    "REBUFFER_END",
+    "PLAYBACK_END"
+  ]
+}

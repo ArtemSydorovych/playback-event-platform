@@ -1,0 +1,40 @@
+{
+  "type": "record",
+  "name": "PlaybackEndPayload",
+  "namespace": "com.netflix.playback.avro",
+  "doc": "Payload for PLAYBACK_END events",
+  "fields": [
+    {
+      "name": "reason",
+      "type": "com.netflix.playback.avro.PlaybackEndReason",
+      "doc": "Reason why playback ended"
+    },
+    {
+      "name": "finalPosition",
+      "type": "long",
+      "doc": "Final playback position (milliseconds)"
+    },
+    {
+      "name": "totalWatchTime",
+      "type": "long",
+      "doc": "Total watch time in this session (milliseconds)"
+    },
+    {
+      "name": "completionPercentage",
+      "type": "double",
+      "doc": "Completion percentage (0.0 - 100.0)"
+    },
+    {
+      "name": "errorCode",
+      "type": ["null", "string"],
+      "default": null,
+      "doc": "Error code if reason is ERROR or NETWORK_ERROR"
+    },
+    {
+      "name": "errorMessage",
+      "type": ["null", "string"],
+      "default": null,
+      "doc": "Error message if reason is ERROR or NETWORK_ERROR"
+    }
+  ]
+}
