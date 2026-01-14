@@ -1,0 +1,11 @@
+# Master docker-compose - imports all modular services
+# Usage: docker-compose up -d
+
+name: playback-platform
+
+include:
+  - kafka/docker-compose.yml
+  # - minio/docker-compose.yml
+  # - flink/docker-compose.yml
+  # - cassandra/docker-compose.yml
+  # - monitoring/docker-compose.yml
