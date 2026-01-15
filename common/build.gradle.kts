@@ -9,6 +9,10 @@ dependencies {
 
     // Confluent Schema Registry client and Avro serializers
     implementation("io.confluent:kafka-avro-serializer:7.5.3")
+
+    // Cassandra DataStax driver
+    implementation("com.datastax.oss:java-driver-core:4.17.0")
+    implementation("com.datastax.oss:java-driver-query-builder:4.17.0")
 }
 
 avro {

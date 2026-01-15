@@ -1,0 +1,49 @@
+services:
+  cassandra:
+    image: cassandra:4.1
+    container_name: playback-cassandra
+    hostname: cassandra
+    ports:
+      - "9042:9042"
+    environment:
+      - CASSANDRA_CLUSTER_NAME=PlaybackCluster
+      - CASSANDRA_DC=dc1
+      - CASSANDRA_ENDPOINT_SNITCH=GossipingPropertyFileSnitch
+      - MAX_HEAP_SIZE=512M
+      - HEAP_NEWSIZE=100M
+    volumes:
+      - cassandra-data:/var/lib/cassandra
+    healthcheck:
+      test: ["CMD", "cqlsh", "-e", "describe keyspaces"]
+      interval: 15s
+      timeout: 10s
+      retries: 10
+      start_period: 60s
+    networks:
+      - playback-network
+
+  cassandra-init:
+    image: cassandra:4.1
+    container_name: playback-cassandra-init
+    depends_on:
+      cassandra:
+        condition: service_healthy
+    volumes:
+      - ./init:/init
+    command: >
+      bash -c "
+        echo 'Waiting for Cassandra to be ready...'
+        sleep 5
+        echo 'Initializing schema...'
+        cqlsh cassandra -f /init/schema.cql
+        echo 'Schema initialized successfully!'
+      "
+    networks:
+      - playback-network
+
+volumes:
+  cassandra-data:
+
+networks:
+  playback-network:
+    driver: bridge
