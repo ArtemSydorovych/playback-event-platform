@@ -1,4 +1,4 @@
-# 🎬 Netflix-Style Playback Event Platform
+# 🎬 Playback Event Platform
 
 A production-grade data platform for processing, analyzing, and serving video playback events at scale. This system captures every interaction users have with video content — play, pause, seek, quality changes, buffering — and transforms this raw stream into actionable insights and real-time features.
 

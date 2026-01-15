@@ -1,7 +1,7 @@
-package com.netflix.playback.consumer;
+package com.artemsydorovych.playback.consumer;
 
-import com.netflix.playback.avro.PlaybackEvent;
-import com.netflix.playback.config.KafkaConfig;
+import com.artemsydorovych.playback.avro.PlaybackEvent;
+import com.artemsydorovych.playback.config.KafkaConfig;
 import io.confluent.kafka.serializers.KafkaAvroDeserializer;
 import io.confluent.kafka.serializers.KafkaAvroDeserializerConfig;
 import org.apache.kafka.clients.consumer.*;

@@ -6,7 +6,7 @@
         </encoder>
     </appender>
 
-    <logger name="com.netflix.playback" level="INFO"/>
+    <logger name="com.artemsydorovych.playback" level="INFO"/>
     <logger name="org.apache.kafka" level="WARN"/>
 
     <root level="INFO">

@@ -1,4 +1,4 @@
-package com.netflix.playback.avro;
+package com.artemsydorovych.playback.avro;
 
 import org.apache.avro.io.*;
 import org.apache.avro.specific.SpecificDatumReader;

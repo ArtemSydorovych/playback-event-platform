@@ -1,4 +1,4 @@
-package com.netflix.playback.config;
+package com.artemsydorovych.playback.config;
 
 /**
  * Centralized configuration constants for Kafka and Schema Registry.

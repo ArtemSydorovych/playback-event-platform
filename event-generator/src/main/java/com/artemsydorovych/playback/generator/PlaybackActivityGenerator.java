@@ -1,6 +1,6 @@
-package com.netflix.playback.generator;
+package com.artemsydorovych.playback.generator;
 
-import com.netflix.playback.avro.*;
+import com.artemsydorovych.playback.avro.*;
 
 import java.time.Instant;
 import java.util.UUID;

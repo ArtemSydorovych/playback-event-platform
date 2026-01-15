@@ -1,7 +1,7 @@
-package com.netflix.playback.generator;
+package com.artemsydorovych.playback.generator;
 
-import com.netflix.playback.avro.PlaybackEvent;
-import com.netflix.playback.config.KafkaConfig;
+import com.artemsydorovych.playback.avro.PlaybackEvent;
+import com.artemsydorovych.playback.config.KafkaConfig;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
