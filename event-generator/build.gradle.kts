@@ -15,7 +15,7 @@ dependencies {
 }
 
 application {
-    mainClass.set("com.netflix.playback.generator.EventGeneratorApp")
+    mainClass.set("com.artemsydorovych.playback.generator.EventGeneratorApp")
 }
 
 tasks.named<JavaExec>("run") {

@@ -1,7 +1,7 @@
 {
   "type": "record",
   "name": "PlaybackEvent",
-  "namespace": "com.netflix.playback.avro",
+  "namespace": "com.artemsydorovych.playback.avro",
   "doc": "Core playback event model representing any user interaction with video playback",
   "fields": [
     {
@@ -11,7 +11,7 @@
     },
     {
       "name": "eventType",
-      "type": "com.netflix.playback.avro.EventType",
+      "type": "com.artemsydorovych.playback.avro.EventType",
       "doc": "Type of playback event"
     },
     {
@@ -74,7 +74,7 @@
     },
     {
       "name": "deviceInfo",
-      "type": ["null", "com.netflix.playback.avro.DeviceInfo"],
+      "type": ["null", "com.artemsydorovych.playback.avro.DeviceInfo"],
       "default": null,
       "doc": "Device information"
     },
@@ -82,11 +82,11 @@
       "name": "payload",
       "type": [
         "null",
-        "com.netflix.playback.avro.SeekPayload",
-        "com.netflix.playback.avro.QualityChangePayload",
-        "com.netflix.playback.avro.RebufferPayload",
-        "com.netflix.playback.avro.PlaybackEndPayload",
-        "com.netflix.playback.avro.ProgressPayload"
+        "com.artemsydorovych.playback.avro.SeekPayload",
+        "com.artemsydorovych.playback.avro.QualityChangePayload",
+        "com.artemsydorovych.playback.avro.RebufferPayload",
+        "com.artemsydorovych.playback.avro.PlaybackEndPayload",
+        "com.artemsydorovych.playback.avro.ProgressPayload"
       ],
       "default": null,
       "doc": "Event-specific payload data (union type)"

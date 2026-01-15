@@ -1,12 +1,12 @@
 {
   "type": "record",
   "name": "DeviceInfo",
-  "namespace": "com.netflix.playback.avro",
+  "namespace": "com.artemsydorovych.playback.avro",
   "doc": "Information about the device emitting playback events",
   "fields": [
     {
       "name": "deviceType",
-      "type": "com.netflix.playback.avro.DeviceType",
+      "type": "com.artemsydorovych.playback.avro.DeviceType",
       "doc": "Type of device"
     },
     {

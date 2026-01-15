@@ -1,7 +1,7 @@
 {
   "type": "record",
   "name": "ProgressPayload",
-  "namespace": "com.netflix.playback.avro",
+  "namespace": "com.artemsydorovych.playback.avro",
   "doc": "Payload for PROGRESS (heartbeat) events",
   "fields": [
     {
@@ -11,7 +11,7 @@
     },
     {
       "name": "currentQuality",
-      "type": "com.netflix.playback.avro.VideoQuality",
+      "type": "com.artemsydorovych.playback.avro.VideoQuality",
       "doc": "Current video quality"
     },
     {

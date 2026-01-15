@@ -15,7 +15,7 @@ dependencies {
 }
 
 application {
-    mainClass.set("com.netflix.playback.consumer.ConsoleConsumerApp")
+    mainClass.set("com.artemsydorovych.playback.consumer.ConsoleConsumerApp")
 }
 
 tasks.named<JavaExec>("run") {

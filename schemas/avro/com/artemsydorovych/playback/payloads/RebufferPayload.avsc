@@ -1,7 +1,7 @@
 {
   "type": "record",
   "name": "RebufferPayload",
-  "namespace": "com.netflix.playback.avro",
+  "namespace": "com.artemsydorovych.playback.avro",
   "doc": "Payload for REBUFFER_START and REBUFFER_END events",
   "fields": [
     {

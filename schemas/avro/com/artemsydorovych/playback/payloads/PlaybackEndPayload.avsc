@@ -1,12 +1,12 @@
 {
   "type": "record",
   "name": "PlaybackEndPayload",
-  "namespace": "com.netflix.playback.avro",
+  "namespace": "com.artemsydorovych.playback.avro",
   "doc": "Payload for PLAYBACK_END events",
   "fields": [
     {
       "name": "reason",
-      "type": "com.netflix.playback.avro.PlaybackEndReason",
+      "type": "com.artemsydorovych.playback.avro.PlaybackEndReason",
       "doc": "Reason why playback ended"
     },
     {

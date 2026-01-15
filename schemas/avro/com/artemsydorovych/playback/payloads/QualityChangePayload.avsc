@@ -1,17 +1,17 @@
 {
   "type": "record",
   "name": "QualityChangePayload",
-  "namespace": "com.netflix.playback.avro",
+  "namespace": "com.artemsydorovych.playback.avro",
   "doc": "Payload for QUALITY_CHANGE events",
   "fields": [
     {
       "name": "oldQuality",
-      "type": "com.netflix.playback.avro.VideoQuality",
+      "type": "com.artemsydorovych.playback.avro.VideoQuality",
       "doc": "Quality before change"
     },
     {
       "name": "newQuality",
-      "type": "com.netflix.playback.avro.VideoQuality",
+      "type": "com.artemsydorovych.playback.avro.VideoQuality",
       "doc": "Quality after change"
     },
     {
