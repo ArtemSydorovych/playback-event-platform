@@ -1,0 +1,154 @@
+# Flink Alerting Rules
+#
+# Critical alerts for Netflix-style production Flink deployment
+
+groups:
+  # ==============================================================
+  # FLINK JOB HEALTH
+  # ==============================================================
+  - name: flink-job-health
+    interval: 30s
+    rules:
+      # Job failed and restarting too often
+      - alert: FlinkJobRestartingTooOften
+        expr: increase(flink_jobmanager_job_numRestarts[10m]) > 3
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Flink job {{ $labels.job_name }} is restarting too often"
+          description: "Job {{ $labels.job_name }} has restarted {{ $value }} times in the last 10 minutes"
+
+      # Job is not running
+      - alert: FlinkJobNotRunning
+        expr: flink_jobmanager_job_uptime == 0
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Flink job {{ $labels.job_name }} is not running"
+          description: "Job {{ $labels.job_name }} has been down for more than 2 minutes"
+
+      # No TaskManagers available
+      - alert: FlinkNoTaskManagers
+        expr: flink_jobmanager_numRegisteredTaskManagers == 0
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: "No TaskManagers registered for {{ $labels.job_name }}"
+          description: "JobManager {{ $labels.job_name }} has no TaskManagers registered"
+
+  # ==============================================================
+  # CHECKPOINT HEALTH
+  # ==============================================================
+  - name: flink-checkpoints
+    interval: 60s
+    rules:
+      # Checkpoint failed
+      - alert: FlinkCheckpointFailed
+        expr: increase(flink_jobmanager_job_numberOfFailedCheckpoints[5m]) > 0
+        for: 0m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Checkpoint failed for {{ $labels.job_name }}"
+          description: "Job {{ $labels.job_name }} had {{ $value }} failed checkpoints in the last 5 minutes"
+
+      # Checkpoint taking too long
+      - alert: FlinkCheckpointTooLong
+        expr: flink_jobmanager_job_lastCheckpointDuration > 120000
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Checkpoint duration high for {{ $labels.job_name }}"
+          description: "Last checkpoint for {{ $labels.job_name }} took {{ $value }}ms (>2 minutes)"
+
+      # No successful checkpoints
+      - alert: FlinkNoSuccessfulCheckpoints
+        expr: increase(flink_jobmanager_job_numberOfCompletedCheckpoints[15m]) == 0
+        for: 15m
+        labels:
+          severity: critical
+        annotations:
+          summary: "No successful checkpoints for {{ $labels.job_name }}"
+          description: "Job {{ $labels.job_name }} has not completed any checkpoints in 15 minutes"
+
+  # ==============================================================
+  # THROUGHPUT & BACKPRESSURE
+  # ==============================================================
+  - name: flink-throughput
+    interval: 30s
+    rules:
+      # Backpressure detected
+      - alert: FlinkBackpressureDetected
+        expr: avg_over_time(flink_taskmanager_job_task_isBackPressured[5m]) > 0.5
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Backpressure detected in {{ $labels.job_name }}"
+          description: "Task {{ $labels.task_name }} in job {{ $labels.job_name }} is experiencing backpressure"
+
+      # Low throughput
+      - alert: FlinkLowThroughput
+        expr: rate(flink_taskmanager_job_task_numRecordsInPerSecond[5m]) < 1
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Low throughput for {{ $labels.job_name }}"
+          description: "Job {{ $labels.job_name }} is processing less than 1 record/sec"
+
+      # Records pending (Kafka lag)
+      - alert: FlinkKafkaLagHigh
+        expr: flink_taskmanager_job_task_pendingRecords > 100000
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "High Kafka lag for {{ $labels.job_name }}"
+          description: "Job {{ $labels.job_name }} has {{ $value }} pending records"
+
+  # ==============================================================
+  # RESOURCE UTILIZATION
+  # ==============================================================
+  - name: flink-resources
+    interval: 30s
+    rules:
+      # High heap memory usage
+      - alert: FlinkHighHeapUsage
+        expr: (flink_taskmanager_Status_JVM_Memory_Heap_Used / flink_taskmanager_Status_JVM_Memory_Heap_Max) > 0.9
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "High heap usage on TaskManager"
+          description: "TaskManager heap usage is above 90%"
+
+      # GC taking too long
+      - alert: FlinkHighGCTime
+        expr: rate(flink_taskmanager_Status_JVM_GarbageCollector_G1_Old_Generation_Time[5m]) > 1000
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "High GC time on TaskManager"
+          description: "TaskManager is spending too much time in GC"
+
+  # ==============================================================
+  # INFRASTRUCTURE
+  # ==============================================================
+  - name: infrastructure
+    interval: 60s
+    rules:
+      # Prometheus target down
+      - alert: PrometheusTargetDown
+        expr: up == 0
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Target {{ $labels.job }} is down"
+          description: "Prometheus cannot scrape {{ $labels.instance }}"

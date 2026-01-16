@@ -45,7 +45,7 @@ services:
     image: ipushc/cassandra-web:latest
     container_name: playback-cassandra-web
     ports:
-      - "8084:8083"
+      - "8086:8083"
     environment:
       CASSANDRA_HOST: cassandra
       CASSANDRA_PORT: 9042
@@ -59,7 +59,3 @@ services:
 
 volumes:
   cassandra-data:
-
-networks:
-  playback-network:
-    driver: bridge

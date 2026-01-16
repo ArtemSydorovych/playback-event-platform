@@ -7,6 +7,16 @@ plugins {
 val flinkVersion = "1.18.1"
 val kafkaConnectorVersion = "3.1.0-1.18"
 
+/**
+ * Netflix-style Job Classes:
+ * - RawEventsJob:        com.artemsydorovych.playback.flink.job.RawEventsJob
+ * - ContentMetricsJob:   com.artemsydorovych.playback.flink.job.ContentMetricsJob
+ * - SessionDetectionJob: com.artemsydorovych.playback.flink.job.SessionDetectionJob
+ *
+ * Legacy monolithic job (for backwards compatibility):
+ * - PlaybackPipelineJob: com.artemsydorovych.playback.flink.PlaybackPipelineJob
+ */
+
 dependencies {
     // Project dependencies
     implementation(project(":common"))
@@ -21,6 +31,9 @@ dependencies {
     implementation("org.apache.flink:flink-connector-kafka:$kafkaConnectorVersion")
     implementation("org.apache.flink:flink-avro-confluent-registry:$flinkVersion")
     implementation("org.apache.flink:flink-statebackend-rocksdb:$flinkVersion")
+
+    // Prometheus metrics (for observability)
+    implementation("org.apache.flink:flink-metrics-prometheus:$flinkVersion")
 
     // Avro
     implementation("org.apache.avro:avro:1.11.3")

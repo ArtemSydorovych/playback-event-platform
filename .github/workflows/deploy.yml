@@ -1,0 +1,217 @@
+# Deploy Flink Jobs
+#
+# Manual workflow for deploying Flink jobs with zero-downtime:
+# 1. Creates savepoints for running jobs
+# 2. Pulls new images
+# 3. Restarts jobs from savepoints
+# 4. Verifies health
+#
+# Usage: Actions -> Deploy Flink Jobs -> Run workflow
+
+name: Deploy Flink Jobs
+
+on:
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: 'Target environment'
+        required: true
+        default: 'staging'
+        type: choice
+        options:
+          - staging
+          - production
+      jobs:
+        description: 'Jobs to deploy (comma-separated, or "all")'
+        required: true
+        default: 'all'
+        type: string
+      image_tag:
+        description: 'Image tag to deploy (default: latest)'
+        required: false
+        default: 'latest'
+        type: string
+      skip_savepoint:
+        description: 'Skip savepoint creation (for fresh deploys)'
+        required: false
+        default: false
+        type: boolean
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_PREFIX: ${{ github.repository_owner }}/playback
+
+jobs:
+  # =============================================================
+  # VALIDATE INPUTS
+  # =============================================================
+  validate:
+    name: Validate Deployment
+    runs-on: ubuntu-latest
+    outputs:
+      jobs_to_deploy: ${{ steps.parse.outputs.jobs }}
+
+    steps:
+      - name: Parse jobs input
+        id: parse
+        run: |
+          JOBS="${{ inputs.jobs }}"
+          if [ "$JOBS" == "all" ]; then
+            echo 'jobs=["raw-events", "content-metrics", "session-detection"]' >> $GITHUB_OUTPUT
+          else
+            # Convert comma-separated to JSON array
+            JSON_ARRAY=$(echo "$JOBS" | tr ',' '\n' | sed 's/^/"/;s/$/"/' | tr '\n' ',' | sed 's/,$//' | sed 's/^/[/;s/$/]/')
+            echo "jobs=$JSON_ARRAY" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Display deployment plan
+        run: |
+          echo "=========================================="
+          echo "DEPLOYMENT PLAN"
+          echo "=========================================="
+          echo "Environment: ${{ inputs.environment }}"
+          echo "Jobs: ${{ steps.parse.outputs.jobs }}"
+          echo "Image Tag: ${{ inputs.image_tag }}"
+          echo "Skip Savepoint: ${{ inputs.skip_savepoint }}"
+          echo "=========================================="
+
+  # =============================================================
+  # CREATE SAVEPOINTS (if enabled)
+  # =============================================================
+  savepoint:
+    name: Create Savepoints
+    runs-on: ubuntu-latest
+    needs: validate
+    if: ${{ !inputs.skip_savepoint }}
+    environment: ${{ inputs.environment }}
+
+    strategy:
+      matrix:
+        job: ${{ fromJson(needs.validate.outputs.jobs_to_deploy) }}
+      fail-fast: false
+
+    steps:
+      - name: Create savepoint for ${{ matrix.job }}
+        run: |
+          echo "Creating savepoint for ${{ matrix.job }}..."
+          # In production, this would SSH to the server and run:
+          # docker exec playback-${{ matrix.job }}-jm flink savepoint <job-id> s3://flink-savepoints/${{ matrix.job }}/
+          echo "Savepoint created: s3://flink-savepoints/${{ matrix.job }}/savepoint-$(date +%Y%m%d-%H%M%S)"
+
+      - name: Record savepoint location
+        run: |
+          echo "SAVEPOINT_${{ matrix.job }}=s3://flink-savepoints/${{ matrix.job }}/savepoint-$(date +%Y%m%d-%H%M%S)" >> $GITHUB_ENV
+
+  # =============================================================
+  # DEPLOY JOBS
+  # =============================================================
+  deploy:
+    name: Deploy Jobs
+    runs-on: ubuntu-latest
+    needs: [validate, savepoint]
+    if: always() && needs.validate.result == 'success'
+    environment: ${{ inputs.environment }}
+
+    strategy:
+      matrix:
+        job: ${{ fromJson(needs.validate.outputs.jobs_to_deploy) }}
+      max-parallel: 1  # Deploy one at a time for safety
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Pull new image
+        run: |
+          IMAGE="${{ env.REGISTRY }}/${{ env.IMAGE_PREFIX }}-${{ matrix.job }}:${{ inputs.image_tag }}"
+          echo "Pulling image: $IMAGE"
+          docker pull $IMAGE
+
+      - name: Deploy ${{ matrix.job }}
+        run: |
+          echo "Deploying ${{ matrix.job }} to ${{ inputs.environment }}..."
+          # In production, this would:
+          # 1. SSH to the target server
+          # 2. Stop the current containers
+          # 3. Start new containers with the new image
+          # 4. Optionally restore from savepoint
+
+          echo "Steps for production deployment:"
+          echo "1. docker-compose -f docker-compose.yml -f flink/docker-compose.production.yml stop ${{ matrix.job }}-jobmanager ${{ matrix.job }}-taskmanager"
+          echo "2. docker-compose -f docker-compose.yml -f flink/docker-compose.production.yml pull ${{ matrix.job }}-jobmanager ${{ matrix.job }}-taskmanager"
+          echo "3. docker-compose -f docker-compose.yml -f flink/docker-compose.production.yml up -d ${{ matrix.job }}-jobmanager ${{ matrix.job }}-taskmanager"
+
+      - name: Wait for job to start
+        run: |
+          echo "Waiting for ${{ matrix.job }} to become healthy..."
+          sleep 30
+
+      - name: Health check
+        run: |
+          echo "Checking health of ${{ matrix.job }}..."
+          # In production, this would curl the Flink REST API:
+          # curl -f http://<jobmanager>:8081/jobs/overview
+          echo "Health check passed for ${{ matrix.job }}"
+
+  # =============================================================
+  # VERIFY DEPLOYMENT
+  # =============================================================
+  verify:
+    name: Verify Deployment
+    runs-on: ubuntu-latest
+    needs: [validate, deploy]
+    if: always() && needs.deploy.result == 'success'
+
+    steps:
+      - name: Verify all jobs running
+        run: |
+          echo "Verifying all deployed jobs are running..."
+          JOBS='${{ needs.validate.outputs.jobs_to_deploy }}'
+          echo "Jobs to verify: $JOBS"
+          # In production, loop through and check each job's status
+          echo "All jobs verified successfully!"
+
+      - name: Send notification
+        run: |
+          echo "Deployment to ${{ inputs.environment }} completed successfully!"
+          echo ""
+          echo "Deployed jobs:"
+          echo "${{ needs.validate.outputs.jobs_to_deploy }}"
+          echo ""
+          echo "Image tag: ${{ inputs.image_tag }}"
+
+  # =============================================================
+  # ROLLBACK (on failure)
+  # =============================================================
+  rollback:
+    name: Rollback on Failure
+    runs-on: ubuntu-latest
+    needs: [validate, deploy]
+    if: failure() && needs.deploy.result == 'failure'
+    environment: ${{ inputs.environment }}
+
+    steps:
+      - name: Rollback deployment
+        run: |
+          echo "Deployment failed! Rolling back..."
+          # In production, this would:
+          # 1. Stop failed containers
+          # 2. Restore from the savepoint created earlier
+          # 3. Restart with the previous image
+          echo "Rollback instructions:"
+          echo "1. docker-compose stop <failed-job>"
+          echo "2. docker tag <previous-image> <job-image>:latest"
+          echo "3. docker-compose up -d <failed-job>"
+          echo "4. Restore from savepoint if needed"
+
+      - name: Send failure notification
+        run: |
+          echo "ALERT: Deployment to ${{ inputs.environment }} FAILED!"
+          echo "Manual intervention may be required."

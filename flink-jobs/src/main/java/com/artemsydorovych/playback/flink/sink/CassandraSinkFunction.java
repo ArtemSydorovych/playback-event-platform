@@ -1,9 +1,12 @@
 package com.artemsydorovych.playback.flink.sink;
 
 import com.artemsydorovych.playback.avro.PlaybackEvent;
+import com.artemsydorovych.playback.avro.PlaybackEndPayload;
+import com.artemsydorovych.playback.avro.RebufferPayload;
 import com.artemsydorovych.playback.cassandra.CassandraClient;
 import com.artemsydorovych.playback.cassandra.EventRouter;
 import com.artemsydorovych.playback.flink.config.FlinkConfig;
+import com.artemsydorovych.playback.flink.metrics.PlaybackMetrics;
 import org.apache.flink.configuration.Configuration;
 import org.apache.flink.streaming.api.functions.sink.RichSinkFunction;
 import org.slf4j.Logger;
@@ -12,6 +15,13 @@ import org.slf4j.LoggerFactory;
 /**
  * Flink sink that writes raw PlaybackEvents to Cassandra.
  * Wraps the existing EventRouter for reusability.
+ *
+ * Exports the following Prometheus metrics:
+ * - playback_cassandra_writes_total
+ * - playback_cassandra_write_errors_total
+ * - playback_cassandra_write_latency_ms
+ * - playback_events_processed_total (by event type)
+ * - playback_business_* (high-level business metrics)
  */
 public class CassandraSinkFunction extends RichSinkFunction<PlaybackEvent> {
 
@@ -26,6 +36,11 @@ public class CassandraSinkFunction extends RichSinkFunction<PlaybackEvent> {
     private transient CassandraClient client;
     private transient EventRouter router;
     private transient long processedCount;
+
+    // Custom metrics
+    private transient PlaybackMetrics.CassandraMetrics cassandraMetrics;
+    private transient PlaybackMetrics.EventMetrics eventMetrics;
+    private transient PlaybackMetrics.BusinessMetrics businessMetrics;
 
     public CassandraSinkFunction() {
         this(FlinkConfig.getEnv("cassandra.contact.points", FlinkConfig.DEFAULT_CASSANDRA_CONTACT_POINTS),
@@ -50,17 +65,69 @@ public class CassandraSinkFunction extends RichSinkFunction<PlaybackEvent> {
         this.router.open(client.getSession());
         this.processedCount = 0;
 
-        log.info("CassandraSinkFunction initialized with {} writers",
+        // Initialize metrics
+        this.cassandraMetrics = PlaybackMetrics.createCassandraMetrics(
+                getRuntimeContext().getMetricGroup(), "raw_events");
+        this.eventMetrics = PlaybackMetrics.createEventMetrics(
+                getRuntimeContext().getMetricGroup(), "raw-events");
+        this.businessMetrics = PlaybackMetrics.createBusinessMetrics(
+                getRuntimeContext().getMetricGroup());
+
+        log.info("CassandraSinkFunction initialized with {} writers and Prometheus metrics",
             router.getWriters().size());
     }
 
     @Override
     public void invoke(PlaybackEvent event, Context context) throws Exception {
-        router.route(event);
-        processedCount++;
+        long startTime = System.currentTimeMillis();
 
-        if (processedCount % 1000 == 0) {
-            log.info("CassandraSinkFunction processed {} events", processedCount);
+        try {
+            router.route(event);
+            processedCount++;
+
+            long latency = System.currentTimeMillis() - startTime;
+            cassandraMetrics.recordWrite(latency);
+
+            // Track event type metrics
+            String eventType = event.getEventType().name();
+            eventMetrics.recordEventType(eventType);
+            eventMetrics.processingLatencyMs.update(latency);
+
+            // Track business metrics
+            trackBusinessMetrics(event);
+
+            if (processedCount % 1000 == 0) {
+                log.info("CassandraSinkFunction processed {} events", processedCount);
+            }
+        } catch (Exception e) {
+            cassandraMetrics.recordError();
+            eventMetrics.errorsTotal.inc();
+            throw e;
+        }
+    }
+
+    /**
+     * Track high-level business metrics from events.
+     */
+    private void trackBusinessMetrics(PlaybackEvent event) {
+        switch (event.getEventType()) {
+            case PLAY_START -> businessMetrics.recordPlaybackStart();
+            case PLAYBACK_END -> {
+                if (event.getPayload() instanceof PlaybackEndPayload endPayload) {
+                    businessMetrics.recordPlaybackEnd(
+                            endPayload.getTotalWatchTime(),
+                            endPayload.getCompletionPercentage());
+                }
+            }
+            case REBUFFER_END -> {
+                if (event.getPayload() instanceof RebufferPayload rebuffer) {
+                    Long duration = rebuffer.getRebufferDuration();
+                    if (duration != null) {
+                        businessMetrics.recordRebuffer(duration);
+                    }
+                }
+            }
+            default -> { /* other events don't have business metrics */ }
         }
     }
 

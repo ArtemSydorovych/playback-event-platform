@@ -1,0 +1,97 @@
+# Prometheus Configuration for Playback Platform
+#
+# Scrapes metrics from all Flink jobs and infrastructure components
+
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+  external_labels:
+    environment: 'development'
+    platform: 'playback'
+
+# Alerting configuration
+alerting:
+  alertmanagers: []
+  # Uncomment to add Alertmanager
+  # alertmanagers:
+  #   - static_configs:
+  #       - targets: ['alertmanager:9093']
+
+# Rule files for alerting
+rule_files:
+  - /etc/prometheus/alerting-rules.yml
+
+scrape_configs:
+  # ==============================================================
+  # FLINK JOBS - Netflix Application Mode
+  # ==============================================================
+
+  # Raw Events Job - writes all events to Cassandra
+  - job_name: 'flink-raw-events'
+    static_configs:
+      - targets: ['raw-events-jobmanager:9249']
+        labels:
+          job_type: 'raw-events'
+          component: 'jobmanager'
+      - targets: ['raw-events-taskmanager:9249']
+        labels:
+          job_type: 'raw-events'
+          component: 'taskmanager'
+    metrics_path: /
+    scrape_interval: 10s
+
+  # Content Metrics Job - 5-minute aggregations
+  - job_name: 'flink-content-metrics'
+    static_configs:
+      - targets: ['content-metrics-jobmanager:9249']
+        labels:
+          job_type: 'content-metrics'
+          component: 'jobmanager'
+      - targets: ['content-metrics-taskmanager:9249']
+        labels:
+          job_type: 'content-metrics'
+          component: 'taskmanager'
+    metrics_path: /
+    scrape_interval: 10s
+
+  # Session Detection Job - user sessions
+  - job_name: 'flink-session-detection'
+    static_configs:
+      - targets: ['session-detection-jobmanager:9249']
+        labels:
+          job_type: 'session-detection'
+          component: 'jobmanager'
+      - targets: ['session-detection-taskmanager:9249']
+        labels:
+          job_type: 'session-detection'
+          component: 'taskmanager'
+    metrics_path: /
+    scrape_interval: 10s
+
+  # ==============================================================
+  # INFRASTRUCTURE COMPONENTS
+  # ==============================================================
+
+  # Prometheus self-monitoring
+  - job_name: 'prometheus'
+    static_configs:
+      - targets: ['localhost:9090']
+
+  # Kafka metrics (if JMX exporter enabled)
+  # Uncomment when kafka-jmx-exporter is configured
+  # - job_name: 'kafka'
+  #   static_configs:
+  #     - targets: ['playback-kafka:9308']
+
+  # Cassandra metrics (if JMX exporter enabled)
+  # Uncomment when cassandra-jmx-exporter is configured
+  # - job_name: 'cassandra'
+  #   static_configs:
+  #     - targets: ['playback-cassandra:9500']
+
+  # MinIO metrics
+  - job_name: 'minio'
+    static_configs:
+      - targets: ['minio:9000']
+    metrics_path: /minio/v2/metrics/cluster
+    scheme: http

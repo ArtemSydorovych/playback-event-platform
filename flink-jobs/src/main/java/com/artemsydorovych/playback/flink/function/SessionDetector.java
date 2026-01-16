@@ -5,6 +5,7 @@ import com.artemsydorovych.playback.avro.PlaybackEndPayload;
 import com.artemsydorovych.playback.avro.PlaybackEvent;
 import com.artemsydorovych.playback.avro.RebufferPayload;
 import com.artemsydorovych.playback.flink.config.FlinkConfig;
+import com.artemsydorovych.playback.flink.metrics.PlaybackMetrics;
 import com.artemsydorovych.playback.flink.schema.UserSession;
 import org.apache.flink.api.common.state.ValueState;
 import org.apache.flink.api.common.state.ValueStateDescriptor;
@@ -26,6 +27,13 @@ import java.util.UUID;
  * Key: userId
  * Input: PlaybackEvent
  * Output: UserSession (emitted when session ends)
+ *
+ * Exports Prometheus metrics:
+ * - playback_sessions_detected_total
+ * - playback_sessions_active_sessions (gauge)
+ * - playback_sessions_session_duration_seconds
+ * - playback_sessions_events_per_session
+ * - playback_sessions_contents_per_session
  */
 public class SessionDetector extends KeyedProcessFunction<String, PlaybackEvent, UserSession> {
 
@@ -36,6 +44,7 @@ public class SessionDetector extends KeyedProcessFunction<String, PlaybackEvent,
 
     private transient ValueState<UserSession> sessionState;
     private transient ValueState<Long> timerState;
+    private transient PlaybackMetrics.SessionMetrics sessionMetrics;
 
     public SessionDetector() {
         this(FlinkConfig.SESSION_GAP);
@@ -60,6 +69,10 @@ public class SessionDetector extends KeyedProcessFunction<String, PlaybackEvent,
             Long.class
         );
         timerState = getRuntimeContext().getState(timerDescriptor);
+
+        // Initialize Prometheus metrics
+        sessionMetrics = PlaybackMetrics.createSessionMetrics(getRuntimeContext().getMetricGroup());
+        log.info("SessionDetector initialized with Prometheus metrics");
     }
 
     @Override
@@ -76,8 +89,12 @@ public class SessionDetector extends KeyedProcessFunction<String, PlaybackEvent,
         if (currentSession == null) {
             // Start a new session
             currentSession = createNewSession(userId, event);
+            sessionMetrics.recordSessionStarted();
             log.debug("Started new session for user {}: {}", userId, currentSession.getSessionId());
         }
+
+        // Record event in metrics
+        sessionMetrics.recordSessionEvent();
 
         // Update session with this event
         updateSession(currentSession, event);
@@ -112,6 +129,14 @@ public class SessionDetector extends KeyedProcessFunction<String, PlaybackEvent,
                 session.getSessionId(),
                 session.getSessionDurationMs(),
                 session.getTotalEvents());
+
+            // Record session metrics
+            sessionMetrics.recordSessionEnded(
+                    session.getSessionDurationMs(),
+                    session.getTotalEvents(),
+                    session.getContentIds() != null ? session.getContentIds().size() : 0,
+                    session.getTotalWatchTimeMs()
+            );
 
             out.collect(session);
 

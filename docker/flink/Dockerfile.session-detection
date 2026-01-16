@@ -1,0 +1,25 @@
+# Session Detection Job - Application Mode
+# Detects user viewing sessions based on 30-minute inactivity gaps
+#
+# Build: docker build -t playback-session-detection -f docker/flink/Dockerfile.session-detection .
+# Run:   docker run playback-session-detection standalone-job --job-classname ...SessionDetectionJob
+
+FROM flink:1.18-java17
+
+# Install S3 filesystem plugin
+RUN mkdir -p /opt/flink/plugins/s3-fs-hadoop && \
+    curl -fsSL https://repo1.maven.org/maven2/org/apache/flink/flink-s3-fs-hadoop/1.18.1/flink-s3-fs-hadoop-1.18.1.jar \
+    -o /opt/flink/plugins/s3-fs-hadoop/flink-s3-fs-hadoop-1.18.1.jar
+
+# Copy job JAR
+COPY flink-jobs/build/libs/playback-flink-jobs-all.jar /opt/flink/usrlib/
+
+# Job-specific labels
+LABEL job.name="playback-session-detection" \
+      job.class="com.artemsydorovych.playback.flink.job.SessionDetectionJob" \
+      job.description="User session detection with 30-min gap"
+
+EXPOSE 8081 6123 9249
+
+ENTRYPOINT ["/docker-entrypoint.sh"]
+CMD ["standalone-job", "--job-classname", "com.artemsydorovych.playback.flink.job.SessionDetectionJob"]

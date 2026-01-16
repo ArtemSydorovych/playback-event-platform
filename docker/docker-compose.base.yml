@@ -1,8 +1,6 @@
-# Master docker-compose - imports all modular services
-# Usage: docker-compose up -d
-#
-# For production Netflix-style deployment, use:
-#   docker-compose -f docker-compose.yml -f flink/docker-compose.production.yml up -d
+# Base docker-compose - infrastructure only, no Flink
+# Use this as the base for production mode:
+#   docker-compose -f docker-compose.base.yml -f flink/docker-compose.production.yml up -d
 
 name: playback-platform
 
@@ -11,9 +9,6 @@ include:
   - kafka/docker-compose.yml
   - schema-registry/docker-compose.yml
   - cassandra/docker-compose.yml
-
-  # Flink (use docker-compose.production.yml for Netflix-style)
-  - flink/docker-compose.yml
 
   # Netflix-style infrastructure
   - minio/docker-compose.yml       # S3-compatible checkpoint storage

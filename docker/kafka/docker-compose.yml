@@ -77,7 +77,3 @@ services:
 
 volumes:
   kafka-data:
-
-networks:
-  playback-network:
-    driver: bridge

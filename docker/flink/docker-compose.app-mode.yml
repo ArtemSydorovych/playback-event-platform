@@ -56,8 +56,3 @@ services:
 
 volumes:
   flink-checkpoints:
-
-networks:
-  playback-network:
-    external: true
-    name: playback-platform_playback-network

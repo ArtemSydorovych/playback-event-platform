@@ -1,0 +1,25 @@
+# Raw Events Job - Application Mode
+# Writes all playback events to Cassandra (6 tables)
+#
+# Build: docker build -t playback-raw-events -f docker/flink/Dockerfile.raw-events .
+# Run:   docker run playback-raw-events standalone-job --job-classname ...RawEventsJob
+
+FROM flink:1.18-java17
+
+# Install S3 filesystem plugin
+RUN mkdir -p /opt/flink/plugins/s3-fs-hadoop && \
+    curl -fsSL https://repo1.maven.org/maven2/org/apache/flink/flink-s3-fs-hadoop/1.18.1/flink-s3-fs-hadoop-1.18.1.jar \
+    -o /opt/flink/plugins/s3-fs-hadoop/flink-s3-fs-hadoop-1.18.1.jar
+
+# Copy job JAR
+COPY flink-jobs/build/libs/playback-flink-jobs-all.jar /opt/flink/usrlib/
+
+# Job-specific labels
+LABEL job.name="playback-raw-events" \
+      job.class="com.artemsydorovych.playback.flink.job.RawEventsJob" \
+      job.description="Raw events sink to Cassandra"
+
+EXPOSE 8081 6123 9249
+
+ENTRYPOINT ["/docker-entrypoint.sh"]
+CMD ["standalone-job", "--job-classname", "com.artemsydorovych.playback.flink.job.RawEventsJob"]

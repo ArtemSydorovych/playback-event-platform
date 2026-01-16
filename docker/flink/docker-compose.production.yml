@@ -1,0 +1,286 @@
+# Netflix-style Production Flink Deployment
+#
+# Usage:
+#   1. Build JAR: ./gradlew :flink-jobs:shadowJar
+#   2. Build images: docker-compose -f docker/flink/docker-compose.production.yml build
+#   3. Start: docker-compose -f docker/docker-compose.yml -f docker/flink/docker-compose.production.yml up -d
+#
+# Architecture:
+#   - 3 independent jobs (1 job = 1 container pair)
+#   - S3 checkpoints (MinIO)
+#   - ZooKeeper HA
+#   - Prometheus metrics
+
+services:
+  # ============================================================
+  # RAW EVENTS JOB
+  # Writes all playback events to Cassandra (6 tables)
+  # ============================================================
+  raw-events-jobmanager:
+    build:
+      context: ../..
+      dockerfile: docker/flink/Dockerfile.raw-events
+    image: playback-raw-events:latest
+    container_name: playback-raw-events-jm
+    hostname: raw-events-jobmanager
+    command: standalone-job --job-classname com.artemsydorovych.playback.flink.job.RawEventsJob
+    ports:
+      - "8083:8081"   # Web UI
+      - "9249:9249"   # Prometheus metrics
+    environment:
+      FLINK_PROPERTIES: |
+        jobmanager.rpc.address: raw-events-jobmanager
+        jobmanager.rpc.port: 6123
+        jobmanager.bind-host: 0.0.0.0
+        taskmanager.bind-host: 0.0.0.0
+        state.backend: rocksdb
+        state.backend.incremental: true
+        state.checkpoints.dir: s3://flink-checkpoints/raw-events
+        state.savepoints.dir: s3://flink-savepoints/raw-events
+        execution.checkpointing.interval: 60000
+        execution.checkpointing.mode: EXACTLY_ONCE
+        execution.checkpointing.externalized-checkpoint-retention: RETAIN_ON_CANCELLATION
+        high-availability: zookeeper
+        high-availability.zookeeper.quorum: zookeeper:2181
+        high-availability.zookeeper.path.root: /flink-ha
+        high-availability.cluster-id: raw-events
+        high-availability.storageDir: s3://flink-ha/raw-events
+        s3.endpoint: http://minio:9000
+        s3.path.style.access: true
+        s3.access-key: minioadmin
+        s3.secret-key: minioadmin123
+        restart-strategy: exponential-delay
+        restart-strategy.exponential-delay.initial-backoff: 1s
+        restart-strategy.exponential-delay.max-backoff: 60s
+        restart-strategy.exponential-delay.backoff-multiplier: 2.0
+        metrics.reporters: prometheus
+        metrics.reporter.prometheus.factory.class: org.apache.flink.metrics.prometheus.PrometheusReporterFactory
+        metrics.reporter.prometheus.port: 9249
+        taskmanager.numberOfTaskSlots: 4
+
+      FLINK_KAFKA_BOOTSTRAP_SERVERS: "playback-kafka:29092"
+      FLINK_KAFKA_TOPIC: "playback-events"
+      FLINK_SCHEMA_REGISTRY_URL: "http://playback-schema-registry:8081"
+      FLINK_CASSANDRA_CONTACT_POINTS: "playback-cassandra"
+      FLINK_CASSANDRA_PORT: "9042"
+      FLINK_CASSANDRA_DATACENTER: "datacenter1"
+      FLINK_CASSANDRA_KEYSPACE: "playback"
+      FLINK_PARALLELISM: "4"
+      FLINK_SINK_PARALLELISM: "2"
+    networks:
+      - playback-network
+
+  raw-events-taskmanager:
+    build:
+      context: ../..
+      dockerfile: docker/flink/Dockerfile.raw-events
+    image: playback-raw-events:latest
+    container_name: playback-raw-events-tm
+    hostname: raw-events-taskmanager
+    command: taskmanager
+    environment:
+      FLINK_PROPERTIES: |
+        jobmanager.rpc.address: raw-events-jobmanager
+        jobmanager.rpc.port: 6123
+        taskmanager.bind-host: 0.0.0.0
+        taskmanager.numberOfTaskSlots: 4
+        taskmanager.memory.process.size: 2g
+        state.backend: rocksdb
+        state.backend.incremental: true
+        state.checkpoints.dir: s3://flink-checkpoints/raw-events
+        high-availability: zookeeper
+        high-availability.zookeeper.quorum: zookeeper:2181
+        high-availability.zookeeper.path.root: /flink-ha
+        high-availability.cluster-id: raw-events
+        high-availability.storageDir: s3://flink-ha/raw-events
+        s3.endpoint: http://minio:9000
+        s3.path.style.access: true
+        s3.access-key: minioadmin
+        s3.secret-key: minioadmin123
+        metrics.reporters: prometheus
+        metrics.reporter.prometheus.factory.class: org.apache.flink.metrics.prometheus.PrometheusReporterFactory
+        metrics.reporter.prometheus.port: 9249
+    networks:
+      - playback-network
+
+  # ============================================================
+  # CONTENT METRICS JOB
+  # 5-minute windowed aggregation of content metrics
+  # ============================================================
+  content-metrics-jobmanager:
+    build:
+      context: ../..
+      dockerfile: docker/flink/Dockerfile.content-metrics
+    image: playback-content-metrics:latest
+    container_name: playback-content-metrics-jm
+    hostname: content-metrics-jobmanager
+    command: standalone-job --job-classname com.artemsydorovych.playback.flink.job.ContentMetricsJob
+    ports:
+      - "8084:8081"   # Web UI
+      - "9250:9249"   # Prometheus metrics
+    environment:
+      FLINK_PROPERTIES: |
+        jobmanager.rpc.address: content-metrics-jobmanager
+        jobmanager.rpc.port: 6123
+        jobmanager.bind-host: 0.0.0.0
+        taskmanager.bind-host: 0.0.0.0
+        state.backend: rocksdb
+        state.backend.incremental: true
+        state.checkpoints.dir: s3://flink-checkpoints/content-metrics
+        state.savepoints.dir: s3://flink-savepoints/content-metrics
+        execution.checkpointing.interval: 60000
+        execution.checkpointing.mode: EXACTLY_ONCE
+        execution.checkpointing.externalized-checkpoint-retention: RETAIN_ON_CANCELLATION
+        high-availability: zookeeper
+        high-availability.zookeeper.quorum: zookeeper:2181
+        high-availability.zookeeper.path.root: /flink-ha
+        high-availability.cluster-id: content-metrics
+        high-availability.storageDir: s3://flink-ha/content-metrics
+        s3.endpoint: http://minio:9000
+        s3.path.style.access: true
+        s3.access-key: minioadmin
+        s3.secret-key: minioadmin123
+        restart-strategy: exponential-delay
+        restart-strategy.exponential-delay.initial-backoff: 1s
+        restart-strategy.exponential-delay.max-backoff: 60s
+        restart-strategy.exponential-delay.backoff-multiplier: 2.0
+        metrics.reporters: prometheus
+        metrics.reporter.prometheus.factory.class: org.apache.flink.metrics.prometheus.PrometheusReporterFactory
+        metrics.reporter.prometheus.port: 9249
+        taskmanager.numberOfTaskSlots: 4
+
+      FLINK_KAFKA_BOOTSTRAP_SERVERS: "playback-kafka:29092"
+      FLINK_KAFKA_TOPIC: "playback-events"
+      FLINK_SCHEMA_REGISTRY_URL: "http://playback-schema-registry:8081"
+      FLINK_CASSANDRA_CONTACT_POINTS: "playback-cassandra"
+      FLINK_CASSANDRA_PORT: "9042"
+      FLINK_CASSANDRA_DATACENTER: "datacenter1"
+      FLINK_CASSANDRA_KEYSPACE: "playback"
+      FLINK_PARALLELISM: "4"
+      FLINK_SINK_PARALLELISM: "2"
+    networks:
+      - playback-network
+
+  content-metrics-taskmanager:
+    build:
+      context: ../..
+      dockerfile: docker/flink/Dockerfile.content-metrics
+    image: playback-content-metrics:latest
+    container_name: playback-content-metrics-tm
+    hostname: content-metrics-taskmanager
+    command: taskmanager
+    environment:
+      FLINK_PROPERTIES: |
+        jobmanager.rpc.address: content-metrics-jobmanager
+        jobmanager.rpc.port: 6123
+        taskmanager.bind-host: 0.0.0.0
+        taskmanager.numberOfTaskSlots: 4
+        taskmanager.memory.process.size: 2g
+        state.backend: rocksdb
+        state.backend.incremental: true
+        state.checkpoints.dir: s3://flink-checkpoints/content-metrics
+        high-availability: zookeeper
+        high-availability.zookeeper.quorum: zookeeper:2181
+        high-availability.zookeeper.path.root: /flink-ha
+        high-availability.cluster-id: content-metrics
+        high-availability.storageDir: s3://flink-ha/content-metrics
+        s3.endpoint: http://minio:9000
+        s3.path.style.access: true
+        s3.access-key: minioadmin
+        s3.secret-key: minioadmin123
+        metrics.reporters: prometheus
+        metrics.reporter.prometheus.factory.class: org.apache.flink.metrics.prometheus.PrometheusReporterFactory
+        metrics.reporter.prometheus.port: 9249
+    networks:
+      - playback-network
+
+  # ============================================================
+  # SESSION DETECTION JOB
+  # User session detection with 30-minute inactivity gap
+  # ============================================================
+  session-detection-jobmanager:
+    build:
+      context: ../..
+      dockerfile: docker/flink/Dockerfile.session-detection
+    image: playback-session-detection:latest
+    container_name: playback-session-detection-jm
+    hostname: session-detection-jobmanager
+    command: standalone-job --job-classname com.artemsydorovych.playback.flink.job.SessionDetectionJob
+    ports:
+      - "8085:8081"   # Web UI
+      - "9251:9249"   # Prometheus metrics
+    environment:
+      FLINK_PROPERTIES: |
+        jobmanager.rpc.address: session-detection-jobmanager
+        jobmanager.rpc.port: 6123
+        jobmanager.bind-host: 0.0.0.0
+        taskmanager.bind-host: 0.0.0.0
+        state.backend: rocksdb
+        state.backend.incremental: true
+        state.checkpoints.dir: s3://flink-checkpoints/session-detection
+        state.savepoints.dir: s3://flink-savepoints/session-detection
+        execution.checkpointing.interval: 60000
+        execution.checkpointing.mode: EXACTLY_ONCE
+        execution.checkpointing.externalized-checkpoint-retention: RETAIN_ON_CANCELLATION
+        high-availability: zookeeper
+        high-availability.zookeeper.quorum: zookeeper:2181
+        high-availability.zookeeper.path.root: /flink-ha
+        high-availability.cluster-id: session-detection
+        high-availability.storageDir: s3://flink-ha/session-detection
+        s3.endpoint: http://minio:9000
+        s3.path.style.access: true
+        s3.access-key: minioadmin
+        s3.secret-key: minioadmin123
+        restart-strategy: exponential-delay
+        restart-strategy.exponential-delay.initial-backoff: 1s
+        restart-strategy.exponential-delay.max-backoff: 60s
+        restart-strategy.exponential-delay.backoff-multiplier: 2.0
+        metrics.reporters: prometheus
+        metrics.reporter.prometheus.factory.class: org.apache.flink.metrics.prometheus.PrometheusReporterFactory
+        metrics.reporter.prometheus.port: 9249
+        taskmanager.numberOfTaskSlots: 4
+
+      FLINK_KAFKA_BOOTSTRAP_SERVERS: "playback-kafka:29092"
+      FLINK_KAFKA_TOPIC: "playback-events"
+      FLINK_SCHEMA_REGISTRY_URL: "http://playback-schema-registry:8081"
+      FLINK_CASSANDRA_CONTACT_POINTS: "playback-cassandra"
+      FLINK_CASSANDRA_PORT: "9042"
+      FLINK_CASSANDRA_DATACENTER: "datacenter1"
+      FLINK_CASSANDRA_KEYSPACE: "playback"
+      FLINK_PARALLELISM: "4"
+      FLINK_SINK_PARALLELISM: "2"
+    networks:
+      - playback-network
+
+  session-detection-taskmanager:
+    build:
+      context: ../..
+      dockerfile: docker/flink/Dockerfile.session-detection
+    image: playback-session-detection:latest
+    container_name: playback-session-detection-tm
+    hostname: session-detection-taskmanager
+    command: taskmanager
+    environment:
+      FLINK_PROPERTIES: |
+        jobmanager.rpc.address: session-detection-jobmanager
+        jobmanager.rpc.port: 6123
+        taskmanager.bind-host: 0.0.0.0
+        taskmanager.numberOfTaskSlots: 4
+        taskmanager.memory.process.size: 2g
+        state.backend: rocksdb
+        state.backend.incremental: true
+        state.checkpoints.dir: s3://flink-checkpoints/session-detection
+        high-availability: zookeeper
+        high-availability.zookeeper.quorum: zookeeper:2181
+        high-availability.zookeeper.path.root: /flink-ha
+        high-availability.cluster-id: session-detection
+        high-availability.storageDir: s3://flink-ha/session-detection
+        s3.endpoint: http://minio:9000
+        s3.path.style.access: true
+        s3.access-key: minioadmin
+        s3.secret-key: minioadmin123
+        metrics.reporters: prometheus
+        metrics.reporter.prometheus.factory.class: org.apache.flink.metrics.prometheus.PrometheusReporterFactory
+        metrics.reporter.prometheus.port: 9249
+    networks:
+      - playback-network

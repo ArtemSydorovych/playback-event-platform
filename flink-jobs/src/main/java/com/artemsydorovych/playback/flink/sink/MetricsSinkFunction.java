@@ -2,6 +2,7 @@ package com.artemsydorovych.playback.flink.sink;
 
 import com.artemsydorovych.playback.cassandra.CassandraClient;
 import com.artemsydorovych.playback.flink.config.FlinkConfig;
+import com.artemsydorovych.playback.flink.metrics.PlaybackMetrics;
 import com.artemsydorovych.playback.flink.schema.ContentMetrics;
 import com.datastax.oss.driver.api.core.CqlSession;
 import com.datastax.oss.driver.api.core.cql.PreparedStatement;
@@ -14,6 +15,11 @@ import java.time.Instant;
 
 /**
  * Flink sink that writes ContentMetrics aggregations to Cassandra.
+ *
+ * Exports Prometheus metrics:
+ * - playback_cassandra_writes_total (table=content_metrics_5min)
+ * - playback_cassandra_write_errors_total
+ * - playback_cassandra_write_latency_ms
  */
 public class MetricsSinkFunction extends RichSinkFunction<ContentMetrics> {
 
@@ -40,6 +46,7 @@ public class MetricsSinkFunction extends RichSinkFunction<ContentMetrics> {
     private transient CqlSession session;
     private transient PreparedStatement preparedStatement;
     private transient long processedCount;
+    private transient PlaybackMetrics.CassandraMetrics cassandraMetrics;
 
     public MetricsSinkFunction() {
         this(FlinkConfig.getEnv("cassandra.contact.points", FlinkConfig.DEFAULT_CASSANDRA_CONTACT_POINTS),
@@ -64,40 +71,54 @@ public class MetricsSinkFunction extends RichSinkFunction<ContentMetrics> {
         this.preparedStatement = session.prepare(INSERT_CQL);
         this.processedCount = 0;
 
-        log.info("MetricsSinkFunction initialized");
+        // Initialize Prometheus metrics
+        this.cassandraMetrics = PlaybackMetrics.createCassandraMetrics(
+                getRuntimeContext().getMetricGroup(), "content_metrics_5min");
+
+        log.info("MetricsSinkFunction initialized with Prometheus metrics");
     }
 
     @Override
     public void invoke(ContentMetrics metrics, Context context) throws Exception {
-        session.execute(preparedStatement.bind(
-            metrics.getContentId(),
-            toInstant(metrics.getWindowStart()),
-            toInstant(metrics.getWindowEnd()),
-            metrics.getViewCount(),
-            metrics.getUniqueViewers(),
-            metrics.getCompletedViews(),
-            metrics.getTotalWatchTimeMs(),
-            metrics.getAvgWatchTimeMs(),
-            metrics.getRebufferCount(),
-            metrics.getTotalRebufferDurationMs(),
-            metrics.getErrorCount(),
-            metrics.getPauseCount(),
-            metrics.getSeekCount(),
-            metrics.getQualityChangeCount(),
-            metrics.getMobileViews(),
-            metrics.getDesktopViews(),
-            metrics.getTvViews(),
-            metrics.getOtherDeviceViews()
-        ));
+        long startTime = System.currentTimeMillis();
 
-        processedCount++;
-
-        if (log.isDebugEnabled() || processedCount % 100 == 0) {
-            log.info("MetricsSinkFunction: wrote metrics for content={}, window={}-{}, views={}",
+        try {
+            session.execute(preparedStatement.bind(
                 metrics.getContentId(),
-                metrics.getWindowStart(),
-                metrics.getWindowEnd(),
-                metrics.getViewCount());
+                toInstant(metrics.getWindowStart()),
+                toInstant(metrics.getWindowEnd()),
+                metrics.getViewCount(),
+                metrics.getUniqueViewers(),
+                metrics.getCompletedViews(),
+                metrics.getTotalWatchTimeMs(),
+                metrics.getAvgWatchTimeMs(),
+                metrics.getRebufferCount(),
+                metrics.getTotalRebufferDurationMs(),
+                metrics.getErrorCount(),
+                metrics.getPauseCount(),
+                metrics.getSeekCount(),
+                metrics.getQualityChangeCount(),
+                metrics.getMobileViews(),
+                metrics.getDesktopViews(),
+                metrics.getTvViews(),
+                metrics.getOtherDeviceViews()
+            ));
+
+            long latency = System.currentTimeMillis() - startTime;
+            cassandraMetrics.recordWrite(latency);
+            processedCount++;
+
+            if (log.isDebugEnabled() || processedCount % 100 == 0) {
+                log.info("MetricsSinkFunction: wrote metrics for content={}, window={}-{}, views={}, latency={}ms",
+                    metrics.getContentId(),
+                    metrics.getWindowStart(),
+                    metrics.getWindowEnd(),
+                    metrics.getViewCount(),
+                    latency);
+            }
+        } catch (Exception e) {
+            cassandraMetrics.recordError();
+            throw e;
         }
     }
 

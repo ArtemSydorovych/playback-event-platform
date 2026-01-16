@@ -2,6 +2,7 @@ package com.artemsydorovych.playback.flink.sink;
 
 import com.artemsydorovych.playback.cassandra.CassandraClient;
 import com.artemsydorovych.playback.flink.config.FlinkConfig;
+import com.artemsydorovych.playback.flink.metrics.PlaybackMetrics;
 import com.artemsydorovych.playback.flink.schema.UserSession;
 import com.datastax.oss.driver.api.core.CqlSession;
 import com.datastax.oss.driver.api.core.cql.PreparedStatement;
@@ -14,6 +15,11 @@ import java.time.Instant;
 
 /**
  * Flink sink that writes UserSession aggregations to Cassandra.
+ *
+ * Exports Prometheus metrics:
+ * - playback_cassandra_writes_total (table=user_sessions)
+ * - playback_cassandra_write_errors_total
+ * - playback_cassandra_write_latency_ms
  */
 public class SessionSinkFunction extends RichSinkFunction<UserSession> {
 
@@ -40,6 +46,7 @@ public class SessionSinkFunction extends RichSinkFunction<UserSession> {
     private transient CqlSession session;
     private transient PreparedStatement preparedStatement;
     private transient long processedCount;
+    private transient PlaybackMetrics.CassandraMetrics cassandraMetrics;
 
     public SessionSinkFunction() {
         this(FlinkConfig.getEnv("cassandra.contact.points", FlinkConfig.DEFAULT_CASSANDRA_CONTACT_POINTS),
@@ -64,36 +71,50 @@ public class SessionSinkFunction extends RichSinkFunction<UserSession> {
         this.preparedStatement = session.prepare(INSERT_CQL);
         this.processedCount = 0;
 
-        log.info("SessionSinkFunction initialized");
+        // Initialize Prometheus metrics
+        this.cassandraMetrics = PlaybackMetrics.createCassandraMetrics(
+                getRuntimeContext().getMetricGroup(), "user_sessions");
+
+        log.info("SessionSinkFunction initialized with Prometheus metrics");
     }
 
     @Override
     public void invoke(UserSession userSession, Context context) throws Exception {
-        session.execute(preparedStatement.bind(
-            userSession.getUserId(),
-            toInstant(userSession.getSessionStart()),
-            userSession.getSessionId(),
-            userSession.getDeviceType(),
-            userSession.getSessionDurationMs(),
-            userSession.getContentCount(),
-            userSession.getTotalEvents(),
-            userSession.getTotalWatchTimeMs(),
-            userSession.getAvgCompletionPercentage(),
-            userSession.getPlayStartCount(),
-            userSession.getPauseCount(),
-            userSession.getSeekCount(),
-            userSession.getErrorCount(),
-            userSession.getRebufferCount(),
-            userSession.getTotalRebufferDurationMs()
-        ));
+        long startTime = System.currentTimeMillis();
 
-        processedCount++;
+        try {
+            session.execute(preparedStatement.bind(
+                userSession.getUserId(),
+                toInstant(userSession.getSessionStart()),
+                userSession.getSessionId(),
+                userSession.getDeviceType(),
+                userSession.getSessionDurationMs(),
+                userSession.getContentCount(),
+                userSession.getTotalEvents(),
+                userSession.getTotalWatchTimeMs(),
+                userSession.getAvgCompletionPercentage(),
+                userSession.getPlayStartCount(),
+                userSession.getPauseCount(),
+                userSession.getSeekCount(),
+                userSession.getErrorCount(),
+                userSession.getRebufferCount(),
+                userSession.getTotalRebufferDurationMs()
+            ));
 
-        log.info("SessionSinkFunction: wrote session user={}, session={}, duration={}ms, events={}",
-            userSession.getUserId(),
-            userSession.getSessionId(),
-            userSession.getSessionDurationMs(),
-            userSession.getTotalEvents());
+            long latency = System.currentTimeMillis() - startTime;
+            cassandraMetrics.recordWrite(latency);
+            processedCount++;
+
+            log.info("SessionSinkFunction: wrote session user={}, session={}, duration={}ms, events={}, latency={}ms",
+                userSession.getUserId(),
+                userSession.getSessionId(),
+                userSession.getSessionDurationMs(),
+                userSession.getTotalEvents(),
+                latency);
+        } catch (Exception e) {
+            cassandraMetrics.recordError();
+            throw e;
+        }
     }
 
     private Instant toInstant(Instant instant) {

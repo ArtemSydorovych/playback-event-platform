@@ -1,0 +1,25 @@
+# Content Metrics Job - Application Mode
+# Aggregates playback events into 5-minute content metrics
+#
+# Build: docker build -t playback-content-metrics -f docker/flink/Dockerfile.content-metrics .
+# Run:   docker run playback-content-metrics standalone-job --job-classname ...ContentMetricsJob
+
+FROM flink:1.18-java17
+
+# Install S3 filesystem plugin
+RUN mkdir -p /opt/flink/plugins/s3-fs-hadoop && \
+    curl -fsSL https://repo1.maven.org/maven2/org/apache/flink/flink-s3-fs-hadoop/1.18.1/flink-s3-fs-hadoop-1.18.1.jar \
+    -o /opt/flink/plugins/s3-fs-hadoop/flink-s3-fs-hadoop-1.18.1.jar
+
+# Copy job JAR
+COPY flink-jobs/build/libs/playback-flink-jobs-all.jar /opt/flink/usrlib/
+
+# Job-specific labels
+LABEL job.name="playback-content-metrics" \
+      job.class="com.artemsydorovych.playback.flink.job.ContentMetricsJob" \
+      job.description="5-minute content metrics aggregation"
+
+EXPOSE 8081 6123 9249
+
+ENTRYPOINT ["/docker-entrypoint.sh"]
+CMD ["standalone-job", "--job-classname", "com.artemsydorovych.playback.flink.job.ContentMetricsJob"]

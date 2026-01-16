@@ -30,15 +30,24 @@ public class PlaybackEventSource {
      * Creates a KafkaSource for PlaybackEvent with Schema Registry integration.
      */
     public static KafkaSource<PlaybackEvent> create(JobParameters params) {
-        log.info("Creating Kafka source: topic={}, bootstrap={}, registry={}",
+        return createWithGroupId(params, params.getKafkaGroupId());
+    }
+
+    /**
+     * Creates a KafkaSource with a custom consumer group ID.
+     * Used by Netflix-style split jobs where each job has its own consumer group.
+     */
+    public static KafkaSource<PlaybackEvent> createWithGroupId(JobParameters params, String groupId) {
+        log.info("Creating Kafka source: topic={}, bootstrap={}, registry={}, groupId={}",
             params.getKafkaTopic(),
             params.getKafkaBootstrapServers(),
-            params.getSchemaRegistryUrl());
+            params.getSchemaRegistryUrl(),
+            groupId);
 
         return KafkaSource.<PlaybackEvent>builder()
             .setBootstrapServers(params.getKafkaBootstrapServers())
             .setTopics(params.getKafkaTopic())
-            .setGroupId(params.getKafkaGroupId())
+            .setGroupId(groupId)
             .setStartingOffsets(OffsetsInitializer.earliest())
             .setDeserializer(new AvroDeserializationSchema(params.getSchemaRegistryUrl()))
             .build();

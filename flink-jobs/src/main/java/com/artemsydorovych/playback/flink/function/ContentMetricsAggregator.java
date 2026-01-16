@@ -5,8 +5,10 @@ import com.artemsydorovych.playback.avro.EventType;
 import com.artemsydorovych.playback.avro.PlaybackEvent;
 import com.artemsydorovych.playback.avro.PlaybackEndPayload;
 import com.artemsydorovych.playback.avro.RebufferPayload;
+import com.artemsydorovych.playback.flink.metrics.PlaybackMetrics;
 import com.artemsydorovych.playback.flink.schema.ContentMetrics;
 import org.apache.flink.api.common.functions.AggregateFunction;
+import org.apache.flink.configuration.Configuration;
 import org.apache.flink.streaming.api.functions.windowing.ProcessWindowFunction;
 import org.apache.flink.streaming.api.windowing.windows.TimeWindow;
 import org.apache.flink.util.Collector;
@@ -16,6 +18,13 @@ import java.time.Instant;
 /**
  * Aggregates PlaybackEvents into ContentMetrics within a time window.
  * Used with tumbling windows for content analytics.
+ *
+ * Exports Prometheus metrics:
+ * - playback_content_metrics_windows_processed_total
+ * - playback_content_metrics_views_per_window
+ * - playback_content_metrics_unique_viewers_per_window
+ * - playback_content_metrics_watch_time_per_window_minutes
+ * - playback_content_metrics_completion_rate_percent
  */
 public class ContentMetricsAggregator {
 
@@ -129,11 +138,19 @@ public class ContentMetricsAggregator {
 
     /**
      * Window function that adds window start/end times to the metrics.
+     * Also exports Prometheus metrics for each window processed.
      */
     private static class ContentMetricsWindowFunction
             extends ProcessWindowFunction<ContentMetrics, ContentMetrics, String, TimeWindow> {
 
         private static final long serialVersionUID = 1L;
+        private transient PlaybackMetrics.ContentAggregationMetrics contentMetrics;
+
+        @Override
+        public void open(Configuration parameters) throws Exception {
+            contentMetrics = PlaybackMetrics.createContentMetrics(
+                    getRuntimeContext().getMetricGroup());
+        }
 
         @Override
         public void process(
@@ -148,6 +165,14 @@ public class ContentMetricsAggregator {
             metrics.setContentId(contentId);
             metrics.setWindowStart(Instant.ofEpochMilli(context.window().getStart()));
             metrics.setWindowEnd(Instant.ofEpochMilli(context.window().getEnd()));
+
+            // Record metrics for this window
+            contentMetrics.recordWindow(
+                    (int) metrics.getViewCount(),
+                    metrics.getUniqueViewerIds() != null ? metrics.getUniqueViewerIds().size() : 0,
+                    metrics.getTotalWatchTimeMs(),
+                    (int) metrics.getCompletedViews()
+            );
 
             out.collect(metrics);
         }

@@ -16,6 +16,7 @@ A production-grade data platform for processing, analyzing, and serving video pl
 - [Analytics Capabilities](#-analytics-capabilities)
 - [Operational Features](#-operational-features)
 - [Web Interfaces](#-web-interfaces)
+- [Event Generator Usage](#-event-generator-usage)
 - [Deployment Profiles](#-deployment-profiles)
 
 ---
@@ -798,6 +799,109 @@ Data available for:
 | Jaeger | 16686 | Distributed traces |
 | MinIO Console | 9001 | Object storage browser |
 | Playback API Docs | 8090 | Swagger API documentation |
+
+---
+
+## 🎮 Event Generator Usage
+
+The event generator simulates realistic playback events for testing and development. It supports multiple modes depending on your needs.
+
+### Basic Usage
+
+```powershell
+# Generate 100 events at 10 events/sec (default)
+./gradlew :event-generator:run
+
+# Generate specific number of events
+./gradlew :event-generator:run --args="--count 500"
+
+# Generate with custom rate
+./gradlew :event-generator:run --args="--count 1000 --rate 100"
+```
+
+### Infinite Mode
+
+Run continuously until stopped with Ctrl+C:
+
+```powershell
+# Infinite mode at 50 events/sec
+./gradlew :event-generator:run --args="--infinite --rate 50"
+
+# Infinite mode at maximum single-threaded speed
+./gradlew :event-generator:run --args="--infinite --rate 1000"
+```
+
+### Stress Test Mode
+
+Maximum throughput with multiple parallel threads:
+
+```powershell
+# Stress test with 4 threads (default)
+./gradlew :event-generator:run --args="--stress"
+
+# Stress test with 8 threads
+./gradlew :event-generator:run --args="--stress --threads 8"
+
+# Stress test with custom batch size
+./gradlew :event-generator:run --args="--stress --threads 8 --batch 2000"
+```
+
+### Command Line Options
+
+| Option | Description | Default |
+|--------|-------------|---------|
+| `--count N` | Number of events to generate | 100 |
+| `--rate N` | Events per second | 10 |
+| `--delay N` | Delay between events in ms (alternative to --rate) | - |
+| `--infinite` | Run forever until interrupted (Ctrl+C) | false |
+| `--stress` | Maximum speed mode with multiple threads | false |
+| `--threads N` | Number of parallel threads (stress mode only) | 4 |
+| `--batch N` | Batch size before flush (stress mode only) | 1000 |
+
+### Output Examples
+
+**Regular mode:**
+```
+=== Playback Event Generator ===
+Bootstrap: localhost:9092
+Schema Registry: http://localhost:8081
+Topic: playback-events
+Events: 100, Rate: ~10 events/sec
+Published 10 events...
+Published 20 events...
+...
+Completed! Published: 100, Failed: 0, Duration: 10s, Rate: 10.0/sec
+```
+
+**Stress test mode:**
+```
+=== Playback Event Generator ===
+Mode: STRESS TEST (press Ctrl+C to stop)
+Threads: 8, Batch size: 1000
+Worker 0 started
+Worker 1 started
+...
+STRESS: 50000 total events | Current: 12500 events/sec | Average: 10000 events/sec
+STRESS: 125000 total events | Current: 15000 events/sec | Average: 12500 events/sec
+...
+=== STRESS TEST COMPLETE ===
+Total published: 500000
+Total failed: 0
+Duration: 40s
+Average rate: 12500 events/sec
+```
+
+### Prerequisites
+
+Before running the generator, ensure the infrastructure is running:
+
+```powershell
+# Start all services
+docker-compose -f docker/docker-compose.yml up -d
+
+# Verify Kafka is ready
+docker exec -it playback-kafka kafka-topics.sh --list --bootstrap-server localhost:9092
+```
 
 ---
 
