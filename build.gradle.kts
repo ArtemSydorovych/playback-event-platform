@@ -13,6 +13,24 @@ allprojects {
     }
 }
 
+// Task to build all Flink jobs and copy to deploy folder
+tasks.register<Copy>("buildFlinkJobs") {
+    group = "flink"
+    description = "Build all Flink job JARs and copy to docker/build/flink-jars"
+
+    dependsOn(":flink-jobs:shadowJar")
+
+    from("flink-jobs/build/libs") {
+        include("*-all.jar")
+    }
+    into("docker/build/flink-jars")
+
+    doLast {
+        println("Flink JARs copied to: docker/build/flink-jars/")
+        println("To deploy, run: ./scripts/deploy-flink-jobs.ps1 -StartJobs")
+    }
+}
+
 subprojects {
     apply(plugin = "java")
 

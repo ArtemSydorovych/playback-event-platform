@@ -7,8 +7,8 @@ include:
   - kafka/docker-compose.yml
   - schema-registry/docker-compose.yml
   - cassandra/docker-compose.yml
+  - flink/docker-compose.yml
   # - minio/docker-compose.yml
-  # - flink/docker-compose.yml
   # - monitoring/docker-compose.yml
 
 networks:

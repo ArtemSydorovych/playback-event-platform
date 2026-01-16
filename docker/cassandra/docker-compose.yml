@@ -7,7 +7,7 @@ services:
       - "9042:9042"
     environment:
       - CASSANDRA_CLUSTER_NAME=PlaybackCluster
-      - CASSANDRA_DC=dc1
+      - CASSANDRA_DC=datacenter1
       - CASSANDRA_ENDPOINT_SNITCH=GossipingPropertyFileSnitch
       - MAX_HEAP_SIZE=512M
       - HEAP_NEWSIZE=100M
@@ -38,6 +38,22 @@ services:
         cqlsh cassandra -f /init/schema.cql
         echo 'Schema initialized successfully!'
       "
+    networks:
+      - playback-network
+
+  cassandra-web:
+    image: ipushc/cassandra-web:latest
+    container_name: playback-cassandra-web
+    ports:
+      - "8084:8083"
+    environment:
+      CASSANDRA_HOST: cassandra
+      CASSANDRA_PORT: 9042
+      CASSANDRA_USER: cassandra
+      CASSANDRA_PASSWORD: cassandra
+    depends_on:
+      cassandra:
+        condition: service_healthy
     networks:
       - playback-network
 

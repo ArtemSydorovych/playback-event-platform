@@ -129,5 +129,58 @@ CREATE TABLE IF NOT EXISTS playback_quality_events (
 ) WITH CLUSTERING ORDER BY (timestamp DESC, event_id ASC)
    AND default_time_to_live = 604800;  -- 7 days TTL
 
+-- ============================================================================
+-- Table 7: content_metrics_5min
+-- Real-time content analytics - "How is content performing in 5-minute windows?"
+-- Query: SELECT * FROM content_metrics_5min WHERE content_id = ? ORDER BY window_start DESC LIMIT ?;
+-- ============================================================================
+CREATE TABLE IF NOT EXISTS content_metrics_5min (
+    content_id TEXT,
+    window_start TIMESTAMP,
+    window_end TIMESTAMP,
+    view_count BIGINT,
+    unique_viewers BIGINT,
+    completed_views BIGINT,
+    total_watch_time_ms BIGINT,
+    avg_watch_time_ms BIGINT,
+    rebuffer_count BIGINT,
+    total_rebuffer_duration_ms BIGINT,
+    error_count BIGINT,
+    pause_count BIGINT,
+    seek_count BIGINT,
+    quality_change_count BIGINT,
+    mobile_views BIGINT,
+    desktop_views BIGINT,
+    tv_views BIGINT,
+    other_device_views BIGINT,
+    PRIMARY KEY ((content_id), window_start)
+) WITH CLUSTERING ORDER BY (window_start DESC)
+   AND default_time_to_live = 604800;  -- 7 days TTL
+
+-- ============================================================================
+-- Table 8: user_sessions
+-- Session analytics - "User's viewing sessions with aggregated metrics"
+-- Query: SELECT * FROM user_sessions WHERE user_id = ? ORDER BY session_start DESC LIMIT ?;
+-- ============================================================================
+CREATE TABLE IF NOT EXISTS user_sessions (
+    user_id TEXT,
+    session_start TIMESTAMP,
+    session_id TEXT,
+    device_type TEXT,
+    session_duration_ms BIGINT,
+    content_count INT,
+    total_events INT,
+    total_watch_time_ms BIGINT,
+    avg_completion_percentage DOUBLE,
+    play_start_count INT,
+    pause_count INT,
+    seek_count INT,
+    error_count INT,
+    rebuffer_count INT,
+    total_rebuffer_duration_ms BIGINT,
+    PRIMARY KEY ((user_id), session_start, session_id)
+) WITH CLUSTERING ORDER BY (session_start DESC, session_id ASC)
+   AND default_time_to_live = 7776000;  -- 90 days TTL
+
 -- Print confirmation
 SELECT 'Schema initialized successfully!' AS status;
