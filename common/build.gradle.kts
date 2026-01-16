@@ -13,6 +13,9 @@ dependencies {
     // Cassandra DataStax driver
     implementation("com.datastax.oss:java-driver-core:4.17.0")
     implementation("com.datastax.oss:java-driver-query-builder:4.17.0")
+
+    // Jackson for JSON serialization (used by table writers)
+    implementation("com.fasterxml.jackson.core:jackson-databind:2.16.1")
 }
 
 avro {

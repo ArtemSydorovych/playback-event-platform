@@ -23,7 +23,7 @@ rule_files:
 
 scrape_configs:
   # ==============================================================
-  # FLINK JOBS - Netflix Application Mode
+  # FLINK JOBS - Application Mode (Production)
   # ==============================================================
 
   # Raw Events Job - writes all events to Cassandra

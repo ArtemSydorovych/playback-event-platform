@@ -1,6 +1,6 @@
 # Flink Alerting Rules
 #
-# Critical alerts for Netflix-style production Flink deployment
+# Critical alerts for production Flink deployment
 
 groups:
   # ==============================================================

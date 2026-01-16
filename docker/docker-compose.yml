@@ -1,8 +1,9 @@
 # Master docker-compose - imports all modular services
 # Usage: docker-compose up -d
 #
-# For production Netflix-style deployment, use:
-#   docker-compose -f docker-compose.yml -f flink/docker-compose.production.yml up -d
+# Prerequisites:
+#   1. Build Flink JARs: ./gradlew :flink-jobs:shadowJar
+#   2. Build Flink images: docker-compose -f flink/docker-compose.yml build
 
 name: playback-platform
 
@@ -12,10 +13,10 @@ include:
   - schema-registry/docker-compose.yml
   - cassandra/docker-compose.yml
 
-  # Flink (use docker-compose.production.yml for Netflix-style)
+  # Flink - 3 independent jobs (Application Mode)
   - flink/docker-compose.yml
 
-  # Netflix-style infrastructure
+  # Production infrastructure
   - minio/docker-compose.yml       # S3-compatible checkpoint storage
   - zookeeper/docker-compose.yml   # High Availability coordination
 

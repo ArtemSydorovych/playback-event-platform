@@ -10,7 +10,7 @@ include:
   - schema-registry/docker-compose.yml
   - cassandra/docker-compose.yml
 
-  # Netflix-style infrastructure
+  # Production infrastructure
   - minio/docker-compose.yml       # S3-compatible checkpoint storage
   - zookeeper/docker-compose.yml   # High Availability coordination
 

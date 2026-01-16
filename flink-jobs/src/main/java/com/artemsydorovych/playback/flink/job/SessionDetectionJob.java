@@ -13,7 +13,7 @@ import org.apache.flink.streaming.api.environment.StreamExecutionEnvironment;
 /**
  * Session Detection Job - Detects user viewing sessions based on 30-minute inactivity gaps.
  *
- * Netflix-style: One job per container with dedicated Kafka consumer group.
+ * Production deployment: One job per container with dedicated Kafka consumer group.
  *
  * Pipeline:
  * <pre>

@@ -887,7 +887,7 @@
   ],
   "refresh": "10s",
   "schemaVersion": 38,
-  "tags": ["playback", "business", "streaming", "netflix"],
+  "tags": ["playback", "business", "streaming", "flink"],
   "templating": { "list": [] },
   "time": { "from": "now-1h", "to": "now" },
   "timepicker": {},

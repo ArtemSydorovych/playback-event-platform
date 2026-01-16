@@ -15,7 +15,7 @@ import org.apache.flink.streaming.api.windowing.time.Time;
 /**
  * Content Metrics Job - Aggregates playback events into 5-minute content metrics.
  *
- * Netflix-style: One job per container with dedicated Kafka consumer group.
+ * Production deployment: One job per container with dedicated Kafka consumer group.
  *
  * Pipeline:
  * <pre>

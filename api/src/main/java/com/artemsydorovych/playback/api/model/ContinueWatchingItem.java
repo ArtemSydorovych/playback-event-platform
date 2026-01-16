@@ -3,7 +3,7 @@ package com.artemsydorovych.playback.api.model;
 import java.time.Instant;
 
 /**
- * Item in "Continue Watching" list - Netflix-style row.
+ * Item in "Continue Watching" list - streaming platform feature.
  */
 public record ContinueWatchingItem(
     String userId,

@@ -1,6 +1,6 @@
 # Monitoring Stack - Prometheus + Grafana
 #
-# Provides full observability for Netflix-style Flink deployment:
+# Provides full observability for Flink production deployment:
 # - Prometheus for metrics collection
 # - Grafana for dashboards and alerting
 #

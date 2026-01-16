@@ -4,7 +4,7 @@ plugins {
 }
 
 allprojects {
-    group = "com.netflix.playback"
+    group = "com.playback.platform"
     version = "1.0.0-SNAPSHOT"
 
     repositories {

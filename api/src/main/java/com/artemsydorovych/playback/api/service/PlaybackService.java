@@ -84,7 +84,7 @@ public class PlaybackService implements AutoCloseable {
     }
 
     /**
-     * Get "Continue Watching" list for a user (Netflix-style).
+     * Get "Continue Watching" list for a user (streaming platform).
      */
     public List<ContinueWatchingItem> getContinueWatching(String userId, int limit) {
         ResultSet rs = session.execute(selectContinueWatching.bind(userId, limit));

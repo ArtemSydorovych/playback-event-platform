@@ -20,7 +20,7 @@ import org.slf4j.LoggerFactory;
 /**
  * Abstract base class for all Flink jobs in the playback platform.
  *
- * Netflix-style production patterns:
+ * Production production patterns:
  * - RocksDB state backend with incremental checkpoints
  * - S3-compatible checkpoint storage (MinIO for local, S3 for prod)
  * - Exponential backoff restart strategy
@@ -77,7 +77,7 @@ public abstract class AbstractPlaybackJob {
 
     /**
      * Creates and configures the Flink execution environment.
-     * Netflix-style: RocksDB state backend with S3 checkpoints.
+     * Production: RocksDB state backend with S3 checkpoints.
      */
     protected StreamExecutionEnvironment createEnvironment(JobParameters params) {
         StreamExecutionEnvironment env = StreamExecutionEnvironment.getExecutionEnvironment();
@@ -92,7 +92,7 @@ public abstract class AbstractPlaybackJob {
         // Configure checkpointing
         configureCheckpointing(env, params);
 
-        // Configure restart strategy (exponential backoff - Netflix pattern)
+        // Configure restart strategy (exponential backoff - Production pattern)
         configureRestartStrategy(env);
 
         // Make parameters available to all operators
@@ -122,7 +122,7 @@ public abstract class AbstractPlaybackJob {
         // Only one checkpoint at a time
         checkpointConfig.setMaxConcurrentCheckpoints(FlinkConfig.CONCURRENT_CHECKPOINTS);
 
-        // Keep checkpoint on cancellation for recovery (Netflix pattern)
+        // Keep checkpoint on cancellation for recovery (Production pattern)
         checkpointConfig.setExternalizedCheckpointCleanup(
                 CheckpointConfig.ExternalizedCheckpointCleanup.RETAIN_ON_CANCELLATION);
 
@@ -132,7 +132,7 @@ public abstract class AbstractPlaybackJob {
 
     /**
      * Configures exponential backoff restart strategy.
-     * Netflix pattern: exponential delay with jitter for distributed systems.
+     * Production pattern: exponential delay with jitter for distributed systems.
      */
     protected void configureRestartStrategy(StreamExecutionEnvironment env) {
         env.setRestartStrategy(RestartStrategies.exponentialDelayRestart(

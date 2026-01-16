@@ -22,7 +22,7 @@ public class UserController {
 
     /**
      * GET /api/users/{userId}/continue-watching
-     * Get Netflix-style "Continue Watching" list.
+     * Get Streaming platform "Continue Watching" list.
      */
     public void getContinueWatching(Context ctx) {
         String userId = ctx.pathParam("userId");

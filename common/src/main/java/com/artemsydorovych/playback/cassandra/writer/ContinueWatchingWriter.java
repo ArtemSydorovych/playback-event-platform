@@ -10,7 +10,7 @@ import java.util.Set;
 
 /**
  * Writes to continue_watching table.
- * Query pattern: "User's incomplete content sorted by recency" (Netflix Continue Watching row)
+ * Query pattern: "User's incomplete content sorted by recency" (Continue Watching row)
  *
  * Only stores content that is:
  * - Started (>2% progress) but not completed (<95%)

@@ -8,19 +8,15 @@ val flinkVersion = "1.18.1"
 val kafkaConnectorVersion = "3.1.0-1.18"
 
 /**
- * Netflix-style Job Classes:
+ * Production Job Classes (Application Mode - 1 job per container):
  * - RawEventsJob:        com.artemsydorovych.playback.flink.job.RawEventsJob
  * - ContentMetricsJob:   com.artemsydorovych.playback.flink.job.ContentMetricsJob
  * - SessionDetectionJob: com.artemsydorovych.playback.flink.job.SessionDetectionJob
- *
- * Legacy monolithic job (for backwards compatibility):
- * - PlaybackPipelineJob: com.artemsydorovych.playback.flink.PlaybackPipelineJob
  */
 
 dependencies {
     // Project dependencies
     implementation(project(":common"))
-    implementation(project(":event-consumer"))
 
     // Flink core (provided by cluster at runtime)
     compileOnly("org.apache.flink:flink-streaming-java:$flinkVersion")
@@ -50,7 +46,7 @@ dependencies {
 }
 
 application {
-    mainClass.set("com.artemsydorovych.playback.flink.PlaybackPipelineJob")
+    mainClass.set("com.artemsydorovych.playback.flink.job.RawEventsJob")
 }
 
 tasks.shadowJar {
@@ -65,7 +61,7 @@ tasks.shadowJar {
 
     manifest {
         attributes(
-            "Main-Class" to "com.artemsydorovych.playback.flink.PlaybackPipelineJob"
+            "Main-Class" to "com.artemsydorovych.playback.flink.job.RawEventsJob"
         )
     }
 }

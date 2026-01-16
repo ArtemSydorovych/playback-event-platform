@@ -13,7 +13,7 @@ docker ps
 .\scripts\deploy-flink-jobs.ps1 -StartJobs
 ```
 
-## Quick Start (Production / Netflix-Style)
+## Quick Start (Production / Production)
 
 ```powershell
 # 1. Build the JAR
@@ -60,7 +60,7 @@ docker-compose -f docker/docker-compose.yml up -d
 .\scripts\deploy-flink-jobs.ps1 -StartJobs
 ```
 
-### Mode 2: Production (Netflix Application Mode)
+### Mode 2: Production (Application Mode)
 Each job runs in its own container with dedicated resources.
 
 ```powershell
@@ -249,10 +249,10 @@ docker-compose -f docker/docker-compose.base.yml -f docker/flink/docker-compose.
                                                 └─────────────────┘
 ```
 
-### Production Mode (Netflix Application Mode)
+### Production Mode (Application Mode)
 ```
 ┌───────────────────────────────────────────────────────────────────────────┐
-│                        Netflix-Style Architecture                          │
+│                        Production Architecture                          │
 │                                                                           │
 │  ┌────────────────────────────────────────────────────────────────────┐  │
 │  │                    Raw Events Job (Container)                       │  │

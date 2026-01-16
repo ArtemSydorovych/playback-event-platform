@@ -9,7 +9,7 @@ import org.apache.flink.streaming.api.environment.StreamExecutionEnvironment;
 /**
  * Raw Events Job - Writes all playback events to Cassandra.
  *
- * Netflix-style: One job per container with dedicated Kafka consumer group.
+ * Production deployment: One job per container with dedicated Kafka consumer group.
  *
  * Pipeline:
  * <pre>

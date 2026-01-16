@@ -35,7 +35,7 @@ public class PlaybackEventSource {
 
     /**
      * Creates a KafkaSource with a custom consumer group ID.
-     * Used by Netflix-style split jobs where each job has its own consumer group.
+     * Used by Production split jobs where each job has its own consumer group.
      */
     public static KafkaSource<PlaybackEvent> createWithGroupId(JobParameters params, String groupId) {
         log.info("Creating Kafka source: topic={}, bootstrap={}, registry={}, groupId={}",

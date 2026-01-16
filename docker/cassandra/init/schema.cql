@@ -1,5 +1,5 @@
 -- Playback Event Platform - Cassandra Schema
--- Netflix-like query patterns for playback events
+-- Optimized query patterns for playback events
 
 -- Create keyspace
 CREATE KEYSPACE IF NOT EXISTS playback
