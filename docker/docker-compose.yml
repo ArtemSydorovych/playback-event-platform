@@ -1,10 +1,11 @@
 # Playback Event Platform - Unified Docker Compose
 #
-# Netflix-style streaming platform with:
+#   Streaming platform with:
 # - Kafka (KRaft mode) + Schema Registry
 # - Cassandra (8 query-optimized tables)
 # - Flink (4 independent jobs in Application Mode)
 # - Apache Iceberg (Data Lakehouse) + Trino
+# - Apache Spark (Batch processing) + Jupyter
 # - MinIO (S3-compatible storage for checkpoints + warehouse)
 # - Prometheus + Grafana (Observability)
 #
@@ -24,6 +25,9 @@
 #   - Flink Content Metrics: http://localhost:8084
 #   - Flink Session Detection: http://localhost:8085
 #   - Flink Lakehouse: http://localhost:8087
+#   - Spark Master UI: http://localhost:8088
+#   - Spark History: http://localhost:18080
+#   - Jupyter: http://localhost:8888 (token: playback)
 #   - Trino: http://localhost:8089
 #   - Iceberg REST: http://localhost:8181
 #   - MinIO Console: http://localhost:9001
@@ -767,9 +771,154 @@ services:
       - playback-network
 
 # ============================================================
+  # SPARK (Batch Processing)
+  # ============================================================
+  spark-master:
+    image: apache/spark:3.5.3-python3
+    container_name: playback-spark-master
+    hostname: spark-master
+    user: root
+    ports:
+      - "7077:7077"   # Spark master port
+      - "8088:8080"   # Spark master UI
+    environment:
+      SPARK_MASTER_HOST: spark-master
+      SPARK_MASTER_PORT: 7077
+      SPARK_MASTER_WEBUI_PORT: 8080
+      SPARK_USER: root
+      AWS_ACCESS_KEY_ID: minioadmin
+      AWS_SECRET_ACCESS_KEY: minioadmin123
+      AWS_REGION: us-east-1
+    volumes:
+      - ./spark/conf/spark-defaults.conf:/opt/spark/conf/spark-defaults.conf:ro
+      - ./spark/conf/log4j2.properties:/opt/spark/conf/log4j2.properties:ro
+      - ./spark/jobs:/opt/spark-jobs:ro
+      - spark-ivy-cache:/root/.ivy2
+    command: ["/opt/spark/bin/spark-class", "org.apache.spark.deploy.master.Master"]
+    networks:
+      - playback-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+
+  spark-worker:
+    image: apache/spark:3.5.3-python3
+    container_name: playback-spark-worker
+    hostname: spark-worker
+    user: root
+    environment:
+      SPARK_MASTER: spark://spark-master:7077
+      SPARK_WORKER_MEMORY: 2G
+      SPARK_WORKER_CORES: 2
+      SPARK_USER: root
+      AWS_ACCESS_KEY_ID: minioadmin
+      AWS_SECRET_ACCESS_KEY: minioadmin123
+      AWS_REGION: us-east-1
+    volumes:
+      - ./spark/conf/spark-defaults.conf:/opt/spark/conf/spark-defaults.conf:ro
+      - ./spark/conf/log4j2.properties:/opt/spark/conf/log4j2.properties:ro
+      - ./spark/jobs:/opt/spark-jobs:ro
+      - spark-ivy-cache:/root/.ivy2
+    command: ["/opt/spark/bin/spark-class", "org.apache.spark.deploy.worker.Worker", "spark://spark-master:7077"]
+    depends_on:
+      spark-master:
+        condition: service_healthy
+    networks:
+      - playback-network
+
+  spark-history:
+    image: apache/spark:3.5.3-python3
+    container_name: playback-spark-history
+    hostname: spark-history
+    ports:
+      - "18080:18080"   # History Server UI
+    environment:
+      SPARK_HISTORY_OPTS: "-Dspark.history.fs.logDirectory=s3a://spark-logs/ -Dspark.hadoop.fs.s3a.endpoint=http://minio:9000 -Dspark.hadoop.fs.s3a.access.key=minioadmin -Dspark.hadoop.fs.s3a.secret.key=minioadmin123 -Dspark.hadoop.fs.s3a.path.style.access=true -Dspark.hadoop.fs.s3a.impl=org.apache.hadoop.fs.s3a.S3AFileSystem"
+      AWS_ACCESS_KEY_ID: minioadmin
+      AWS_SECRET_ACCESS_KEY: minioadmin123
+      AWS_REGION: us-east-1
+    volumes:
+      - ./spark/conf/spark-defaults.conf:/opt/spark/conf/spark-defaults.conf:ro
+      - spark-jars:/opt/spark/user-jars
+    command: ["/opt/spark/bin/spark-class", "org.apache.spark.deploy.history.HistoryServer"]
+    depends_on:
+      minio:
+        condition: service_healthy
+      spark-iceberg-init:
+        condition: service_completed_successfully
+    networks:
+      - playback-network
+
+  spark-iceberg-init:
+    image: curlimages/curl:8.5.0
+    container_name: playback-spark-iceberg-init
+    volumes:
+      - spark-jars:/jars
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - |
+        echo 'Downloading Iceberg Spark runtime JARs...'
+        cd /jars
+        curl -sL -o iceberg-spark-runtime-3.5_2.12-1.5.0.jar https://repo1.maven.org/maven2/org/apache/iceberg/iceberg-spark-runtime-3.5_2.12/1.5.0/iceberg-spark-runtime-3.5_2.12-1.5.0.jar
+        curl -sL -o bundle-2.23.9.jar https://repo1.maven.org/maven2/software/amazon/awssdk/bundle/2.23.9/bundle-2.23.9.jar
+        curl -sL -o url-connection-client-2.23.9.jar https://repo1.maven.org/maven2/software/amazon/awssdk/url-connection-client/2.23.9/url-connection-client-2.23.9.jar
+        curl -sL -o hadoop-aws-3.3.4.jar https://repo1.maven.org/maven2/org/apache/hadoop/hadoop-aws/3.3.4/hadoop-aws-3.3.4.jar
+        curl -sL -o aws-java-sdk-bundle-1.12.262.jar https://repo1.maven.org/maven2/com/amazonaws/aws-java-sdk-bundle/1.12.262/aws-java-sdk-bundle-1.12.262.jar
+        echo 'JARs downloaded:'
+        ls -la *.jar
+        echo 'Spark Iceberg initialization complete!'
+    networks:
+      - playback-network
+
+  jupyter:
+    image: jupyter/pyspark-notebook:spark-3.5.0
+    container_name: playback-jupyter
+    hostname: jupyter
+    ports:
+      - "8888:8888"
+    environment:
+      JUPYTER_ENABLE_LAB: "yes"
+      JUPYTER_TOKEN: "playback"
+      PYSPARK_PYTHON: python3
+      PYSPARK_DRIVER_PYTHON: python3
+      AWS_ACCESS_KEY_ID: minioadmin
+      AWS_SECRET_ACCESS_KEY: minioadmin123
+      AWS_REGION: us-east-1
+    volumes:
+      - ./spark/notebooks:/home/jovyan/work
+      - ./spark/jobs:/home/jovyan/jobs:ro
+      - spark-jars:/home/jovyan/spark-jars:ro
+    user: root
+    command: >
+      bash -c "
+        # Install additional packages
+        pip install matplotlib pandas pyarrow --quiet
+
+        # Copy Iceberg JARs to Spark jars directory
+        if [ -d /home/jovyan/spark-jars ]; then
+          cp /home/jovyan/spark-jars/*.jar /usr/local/spark/jars/ 2>/dev/null || true
+        fi
+
+        # Start Jupyter
+        start-notebook.sh --NotebookApp.token='playback'
+      "
+    depends_on:
+      spark-iceberg-init:
+        condition: service_completed_successfully
+      spark-master:
+        condition: service_healthy
+    networks:
+      - playback-network
+
+# ============================================================
 # VOLUMES
 # ============================================================
 volumes:
+  spark-jars:
+  spark-ivy-cache:
   kafka-data:
   cassandra-data:
   minio-data:
