@@ -1,28 +1,789 @@
-# Master docker-compose - imports all modular services
-# Usage: docker-compose up -d
+# Playback Event Platform - Unified Docker Compose
 #
-# Prerequisites:
-#   1. Build Flink JARs: ./gradlew :flink-jobs:shadowJar
-#   2. Build Flink images: docker-compose -f flink/docker-compose.yml build
+# Netflix-style streaming platform with:
+# - Kafka (KRaft mode) + Schema Registry
+# - Cassandra (8 query-optimized tables)
+# - Flink (4 independent jobs in Application Mode)
+# - Apache Iceberg (Data Lakehouse) + Trino
+# - MinIO (S3-compatible storage for checkpoints + warehouse)
+# - Prometheus + Grafana (Observability)
+#
+# Usage:
+#   1. Build JAR: ./gradlew :flink-jobs:shadowJar
+#   2. Build images: docker build -t playback-lakehouse:latest -f docker/flink/Dockerfile.lakehouse .
+#                    docker build -t playback-raw-events:latest -f docker/flink/Dockerfile.raw-events .
+#                    docker build -t playback-content-metrics:latest -f docker/flink/Dockerfile.content-metrics .
+#                    docker build -t playback-session-detection:latest -f docker/flink/Dockerfile.session-detection .
+#   3. Start: cd docker && docker-compose up -d
+#
+# Service URLs:
+#   - Kafka UI: http://localhost:8080
+#   - Schema Registry: http://localhost:8081
+#   - Cassandra Web: http://localhost:8086
+#   - Flink Raw Events: http://localhost:8083
+#   - Flink Content Metrics: http://localhost:8084
+#   - Flink Session Detection: http://localhost:8085
+#   - Flink Lakehouse: http://localhost:8087
+#   - Trino: http://localhost:8089
+#   - Iceberg REST: http://localhost:8181
+#   - MinIO Console: http://localhost:9001
+#   - Prometheus: http://localhost:9090
+#   - Grafana: http://localhost:3000 (admin/admin)
 
 name: playback-platform
 
-include:
-  # Core infrastructure
-  - kafka/docker-compose.yml
-  - schema-registry/docker-compose.yml
-  - cassandra/docker-compose.yml
+services:
+  # ============================================================
+  # KAFKA (KRaft Mode - No ZooKeeper dependency for Kafka)
+  # ============================================================
+  kafka:
+    image: confluentinc/cp-kafka:7.5.3
+    container_name: playback-kafka
+    hostname: kafka
+    ports:
+      - "9092:9092"
+      - "9093:9093"
+    environment:
+      KAFKA_NODE_ID: 1
+      KAFKA_PROCESS_ROLES: broker,controller
+      KAFKA_CONTROLLER_QUORUM_VOTERS: 1@kafka:9093
+      KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
+      KAFKA_LISTENERS: PLAINTEXT://0.0.0.0:29092,CONTROLLER://0.0.0.0:9093,PLAINTEXT_HOST://0.0.0.0:9092
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://playback-kafka:29092,PLAINTEXT_HOST://localhost:9092
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT,PLAINTEXT_HOST:PLAINTEXT
+      KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT
+      CLUSTER_ID: MkU3OEVBNTcwNTJENDM2Qk
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
+      KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS: 0
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: "true"
+      KAFKA_NUM_PARTITIONS: 6
+      KAFKA_LOG_DIRS: /var/lib/kafka/data
+    volumes:
+      - kafka-data:/var/lib/kafka/data
+    healthcheck:
+      test: ["CMD", "bash", "-c", "kafka-broker-api-versions --bootstrap-server localhost:9092"]
+      interval: 10s
+      timeout: 10s
+      retries: 5
+      start_period: 30s
+    networks:
+      - playback-network
 
-  # Flink - 3 independent jobs (Application Mode)
-  - flink/docker-compose.yml
+  kafka-ui:
+    image: provectuslabs/kafka-ui:v0.7.1
+    container_name: playback-kafka-ui
+    ports:
+      - "8080:8080"
+    environment:
+      KAFKA_CLUSTERS_0_NAME: local
+      KAFKA_CLUSTERS_0_BOOTSTRAPSERVERS: playback-kafka:29092
+      KAFKA_CLUSTERS_0_SCHEMAREGISTRY: http://schema-registry:8081
+    depends_on:
+      kafka:
+        condition: service_healthy
+    networks:
+      - playback-network
 
-  # Production infrastructure
-  - minio/docker-compose.yml       # S3-compatible checkpoint storage
-  - zookeeper/docker-compose.yml   # High Availability coordination
+  kafka-init:
+    image: confluentinc/cp-kafka:7.5.3
+    container_name: playback-kafka-init
+    depends_on:
+      kafka:
+        condition: service_healthy
+    command: >
+      bash -c "
+        echo 'Creating topics...'
+        kafka-topics --bootstrap-server playback-kafka:29092 --create --if-not-exists --topic playback-events --partitions 6 --replication-factor 1
+        kafka-topics --bootstrap-server playback-kafka:29092 --create --if-not-exists --topic playback-events-dlq --partitions 3 --replication-factor 1
+        echo 'Topics created.'
+      "
+    networks:
+      - playback-network
 
-  # Observability
-  - monitoring/docker-compose.yml
+  # ============================================================
+  # SCHEMA REGISTRY
+  # ============================================================
+  schema-registry:
+    image: confluentinc/cp-schema-registry:7.5.3
+    container_name: playback-schema-registry
+    hostname: schema-registry
+    ports:
+      - "8081:8081"
+    environment:
+      SCHEMA_REGISTRY_HOST_NAME: schema-registry
+      SCHEMA_REGISTRY_KAFKASTORE_BOOTSTRAP_SERVERS: playback-kafka:29092
+      SCHEMA_REGISTRY_LISTENERS: http://0.0.0.0:8081
+      SCHEMA_REGISTRY_SCHEMA_COMPATIBILITY_LEVEL: BACKWARD
+    depends_on:
+      kafka:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8081/subjects"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
+    networks:
+      - playback-network
 
+  # ============================================================
+  # CASSANDRA
+  # ============================================================
+  cassandra:
+    image: cassandra:4.1
+    container_name: playback-cassandra
+    hostname: cassandra
+    ports:
+      - "9042:9042"
+    environment:
+      - CASSANDRA_CLUSTER_NAME=PlaybackCluster
+      - CASSANDRA_DC=datacenter1
+      - CASSANDRA_ENDPOINT_SNITCH=GossipingPropertyFileSnitch
+      - MAX_HEAP_SIZE=512M
+      - HEAP_NEWSIZE=100M
+    volumes:
+      - cassandra-data:/var/lib/cassandra
+    healthcheck:
+      test: ["CMD", "cqlsh", "-e", "describe keyspaces"]
+      interval: 15s
+      timeout: 10s
+      retries: 10
+      start_period: 60s
+    networks:
+      - playback-network
+
+  cassandra-init:
+    image: cassandra:4.1
+    container_name: playback-cassandra-init
+    depends_on:
+      cassandra:
+        condition: service_healthy
+    volumes:
+      - ./cassandra/init:/init
+    command: >
+      bash -c "
+        echo 'Initializing Cassandra schema...'
+        sleep 5
+        cqlsh cassandra -f /init/schema.cql
+        echo 'Schema initialized!'
+      "
+    networks:
+      - playback-network
+
+  cassandra-web:
+    image: ipushc/cassandra-web:latest
+    container_name: playback-cassandra-web
+    ports:
+      - "8086:8083"
+    environment:
+      CASSANDRA_HOST: cassandra
+      CASSANDRA_PORT: 9042
+      CASSANDRA_USER: cassandra
+      CASSANDRA_PASSWORD: cassandra
+    depends_on:
+      cassandra:
+        condition: service_healthy
+    networks:
+      - playback-network
+
+  # ============================================================
+  # MINIO (S3-compatible storage for Flink checkpoints + Iceberg)
+  # ============================================================
+  minio:
+    image: minio/minio:RELEASE.2024-01-16T16-07-38Z
+    container_name: playback-minio
+    hostname: minio
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    environment:
+      MINIO_ROOT_USER: minioadmin
+      MINIO_ROOT_PASSWORD: minioadmin123
+    command: server /data --console-address ":9001"
+    volumes:
+      - minio-data:/data
+    healthcheck:
+      test: ["CMD", "mc", "ready", "local"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    networks:
+      - playback-network
+
+  minio-init:
+    image: minio/mc:RELEASE.2024-01-16T16-06-34Z
+    container_name: playback-minio-init
+    depends_on:
+      minio:
+        condition: service_healthy
+    entrypoint: >
+      /bin/sh -c "
+        mc alias set myminio http://minio:9000 minioadmin minioadmin123;
+        mc mb --ignore-existing myminio/flink-checkpoints;
+        mc mb --ignore-existing myminio/flink-savepoints;
+        mc mb --ignore-existing myminio/flink-ha;
+        mc mb --ignore-existing myminio/warehouse;
+        mc mb --ignore-existing myminio/spark-logs;
+        echo 'Buckets created:';
+        mc ls myminio;
+      "
+    networks:
+      - playback-network
+
+  # ============================================================
+  # ZOOKEEPER (For Flink HA only, not for Kafka)
+  # ============================================================
+  zookeeper:
+    image: confluentinc/cp-zookeeper:7.5.3
+    container_name: playback-zookeeper
+    hostname: zookeeper
+    ports:
+      - "2181:2181"
+    environment:
+      ZOOKEEPER_CLIENT_PORT: 2181
+      ZOOKEEPER_TICK_TIME: 2000
+      ZOOKEEPER_INIT_LIMIT: 5
+      ZOOKEEPER_SYNC_LIMIT: 2
+      ZOOKEEPER_4LW_COMMANDS_WHITELIST: "*"
+    volumes:
+      - zookeeper-data:/var/lib/zookeeper/data
+      - zookeeper-logs:/var/lib/zookeeper/log
+    healthcheck:
+      test: ["CMD", "bash", "-c", "echo srvr | nc localhost 2181 | grep Zookeeper"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    networks:
+      - playback-network
+
+  # ============================================================
+  # ICEBERG REST CATALOG
+  # ============================================================
+  iceberg-catalog-db:
+    image: postgres:15-alpine
+    container_name: playback-iceberg-catalog-db
+    hostname: iceberg-catalog-db
+    environment:
+      POSTGRES_USER: iceberg
+      POSTGRES_PASSWORD: iceberg123
+      POSTGRES_DB: iceberg_catalog
+    volumes:
+      - iceberg-catalog-db-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U iceberg -d iceberg_catalog"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    networks:
+      - playback-network
+
+  iceberg-rest:
+    image: tabulario/iceberg-rest:1.5.0
+    container_name: playback-iceberg-rest
+    hostname: iceberg-rest
+    ports:
+      - "8181:8181"
+    environment:
+      CATALOG_CATALOG__IMPL: org.apache.iceberg.jdbc.JdbcCatalog
+      CATALOG_URI: jdbc:postgresql://iceberg-catalog-db:5432/iceberg_catalog
+      CATALOG_JDBC_USER: iceberg
+      CATALOG_JDBC_PASSWORD: iceberg123
+      CATALOG_WAREHOUSE: s3://warehouse/
+      CATALOG_IO__IMPL: org.apache.iceberg.aws.s3.S3FileIO
+      CATALOG_S3_ENDPOINT: http://minio:9000
+      CATALOG_S3_PATH__STYLE__ACCESS: "true"
+      AWS_ACCESS_KEY_ID: minioadmin
+      AWS_SECRET_ACCESS_KEY: minioadmin123
+      AWS_REGION: us-east-1
+    depends_on:
+      iceberg-catalog-db:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q --spider http://localhost:8181/v1/config || exit 1"]
+      interval: 10s
+      timeout: 10s
+      retries: 15
+      start_period: 45s
+    networks:
+      - playback-network
+
+  # ============================================================
+  # TRINO (Federated SQL across Iceberg + Cassandra)
+  # ============================================================
+  trino:
+    image: trinodb/trino:436
+    container_name: playback-trino
+    hostname: trino
+    ports:
+      - "8089:8080"
+    volumes:
+      - ./trino/etc:/etc/trino
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/v1/info"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
+    networks:
+      - playback-network
+
+  # ============================================================
+  # PROMETHEUS + GRAFANA (Observability)
+  # ============================================================
+  prometheus:
+    image: prom/prometheus:v2.48.1
+    container_name: playback-prometheus
+    hostname: prometheus
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./monitoring/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./monitoring/prometheus/alerting-rules.yml:/etc/prometheus/alerting-rules.yml:ro
+      - prometheus-data:/prometheus
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+      - '--storage.tsdb.retention.time=15d'
+      - '--web.enable-lifecycle'
+      - '--web.enable-admin-api'
+    networks:
+      - playback-network
+    restart: unless-stopped
+
+  grafana:
+    image: grafana/grafana:10.2.3
+    container_name: playback-grafana
+    hostname: grafana
+    ports:
+      - "3000:3000"
+    environment:
+      GF_SECURITY_ADMIN_USER: admin
+      GF_SECURITY_ADMIN_PASSWORD: admin
+      GF_USERS_ALLOW_SIGN_UP: "false"
+      GF_SERVER_ROOT_URL: "http://localhost:3000"
+      GF_INSTALL_PLUGINS: grafana-piechart-panel
+    volumes:
+      - ./monitoring/grafana/provisioning:/etc/grafana/provisioning:ro
+      - grafana-data:/var/lib/grafana
+    networks:
+      - playback-network
+    depends_on:
+      - prometheus
+    restart: unless-stopped
+
+  # ============================================================
+  # FLINK - RAW EVENTS JOB
+  # Writes all playback events to Cassandra (6 tables)
+  # ============================================================
+  raw-events-jobmanager:
+    image: playback-raw-events:latest
+    container_name: playback-raw-events-jm
+    hostname: raw-events-jobmanager
+    command: standalone-job --job-classname com.artemsydorovych.playback.flink.job.RawEventsJob
+    ports:
+      - "8083:8081"
+      - "9249:9249"
+    environment:
+      FLINK_PROPERTIES: |
+        jobmanager.rpc.address: raw-events-jobmanager
+        jobmanager.rpc.port: 6123
+        jobmanager.bind-host: 0.0.0.0
+        taskmanager.bind-host: 0.0.0.0
+        state.backend: rocksdb
+        state.backend.incremental: true
+        state.checkpoints.dir: s3://flink-checkpoints/raw-events
+        state.savepoints.dir: s3://flink-savepoints/raw-events
+        execution.checkpointing.interval: 60000
+        execution.checkpointing.mode: EXACTLY_ONCE
+        execution.checkpointing.externalized-checkpoint-retention: RETAIN_ON_CANCELLATION
+        high-availability: zookeeper
+        high-availability.zookeeper.quorum: zookeeper:2181
+        high-availability.zookeeper.path.root: /flink-ha
+        high-availability.cluster-id: raw-events
+        high-availability.storageDir: s3://flink-ha/raw-events
+        s3.endpoint: http://minio:9000
+        s3.path.style.access: true
+        s3.access-key: minioadmin
+        s3.secret-key: minioadmin123
+        restart-strategy: exponential-delay
+        restart-strategy.exponential-delay.initial-backoff: 1s
+        restart-strategy.exponential-delay.max-backoff: 60s
+        restart-strategy.exponential-delay.backoff-multiplier: 2.0
+        metrics.reporters: prometheus
+        metrics.reporter.prometheus.factory.class: org.apache.flink.metrics.prometheus.PrometheusReporterFactory
+        metrics.reporter.prometheus.port: 9249
+        taskmanager.numberOfTaskSlots: 4
+      FLINK_KAFKA_BOOTSTRAP_SERVERS: "playback-kafka:29092"
+      FLINK_KAFKA_TOPIC: "playback-events"
+      FLINK_SCHEMA_REGISTRY_URL: "http://playback-schema-registry:8081"
+      FLINK_CASSANDRA_CONTACT_POINTS: "playback-cassandra"
+      FLINK_CASSANDRA_PORT: "9042"
+      FLINK_CASSANDRA_DATACENTER: "datacenter1"
+      FLINK_CASSANDRA_KEYSPACE: "playback"
+      FLINK_PARALLELISM: "4"
+      FLINK_SINK_PARALLELISM: "2"
+    depends_on:
+      kafka:
+        condition: service_healthy
+      cassandra:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
+      zookeeper:
+        condition: service_healthy
+    networks:
+      - playback-network
+
+  raw-events-taskmanager:
+    image: playback-raw-events:latest
+    container_name: playback-raw-events-tm
+    hostname: raw-events-taskmanager
+    command: taskmanager
+    environment:
+      FLINK_PROPERTIES: |
+        jobmanager.rpc.address: raw-events-jobmanager
+        jobmanager.rpc.port: 6123
+        taskmanager.bind-host: 0.0.0.0
+        taskmanager.numberOfTaskSlots: 4
+        taskmanager.memory.process.size: 2g
+        state.backend: rocksdb
+        state.backend.incremental: true
+        state.checkpoints.dir: s3://flink-checkpoints/raw-events
+        high-availability: zookeeper
+        high-availability.zookeeper.quorum: zookeeper:2181
+        high-availability.zookeeper.path.root: /flink-ha
+        high-availability.cluster-id: raw-events
+        high-availability.storageDir: s3://flink-ha/raw-events
+        s3.endpoint: http://minio:9000
+        s3.path.style.access: true
+        s3.access-key: minioadmin
+        s3.secret-key: minioadmin123
+        metrics.reporters: prometheus
+        metrics.reporter.prometheus.factory.class: org.apache.flink.metrics.prometheus.PrometheusReporterFactory
+        metrics.reporter.prometheus.port: 9249
+    depends_on:
+      - raw-events-jobmanager
+    networks:
+      - playback-network
+
+  # ============================================================
+  # FLINK - CONTENT METRICS JOB
+  # 5-minute windowed aggregation of content metrics
+  # ============================================================
+  content-metrics-jobmanager:
+    image: playback-content-metrics:latest
+    container_name: playback-content-metrics-jm
+    hostname: content-metrics-jobmanager
+    command: standalone-job --job-classname com.artemsydorovych.playback.flink.job.ContentMetricsJob
+    ports:
+      - "8084:8081"
+      - "9250:9249"
+    environment:
+      FLINK_PROPERTIES: |
+        jobmanager.rpc.address: content-metrics-jobmanager
+        jobmanager.rpc.port: 6123
+        jobmanager.bind-host: 0.0.0.0
+        taskmanager.bind-host: 0.0.0.0
+        state.backend: rocksdb
+        state.backend.incremental: true
+        state.checkpoints.dir: s3://flink-checkpoints/content-metrics
+        state.savepoints.dir: s3://flink-savepoints/content-metrics
+        execution.checkpointing.interval: 60000
+        execution.checkpointing.mode: EXACTLY_ONCE
+        execution.checkpointing.externalized-checkpoint-retention: RETAIN_ON_CANCELLATION
+        high-availability: zookeeper
+        high-availability.zookeeper.quorum: zookeeper:2181
+        high-availability.zookeeper.path.root: /flink-ha
+        high-availability.cluster-id: content-metrics
+        high-availability.storageDir: s3://flink-ha/content-metrics
+        s3.endpoint: http://minio:9000
+        s3.path.style.access: true
+        s3.access-key: minioadmin
+        s3.secret-key: minioadmin123
+        restart-strategy: exponential-delay
+        restart-strategy.exponential-delay.initial-backoff: 1s
+        restart-strategy.exponential-delay.max-backoff: 60s
+        restart-strategy.exponential-delay.backoff-multiplier: 2.0
+        metrics.reporters: prometheus
+        metrics.reporter.prometheus.factory.class: org.apache.flink.metrics.prometheus.PrometheusReporterFactory
+        metrics.reporter.prometheus.port: 9249
+        taskmanager.numberOfTaskSlots: 4
+      FLINK_KAFKA_BOOTSTRAP_SERVERS: "playback-kafka:29092"
+      FLINK_KAFKA_TOPIC: "playback-events"
+      FLINK_SCHEMA_REGISTRY_URL: "http://playback-schema-registry:8081"
+      FLINK_CASSANDRA_CONTACT_POINTS: "playback-cassandra"
+      FLINK_CASSANDRA_PORT: "9042"
+      FLINK_CASSANDRA_DATACENTER: "datacenter1"
+      FLINK_CASSANDRA_KEYSPACE: "playback"
+      FLINK_PARALLELISM: "4"
+      FLINK_SINK_PARALLELISM: "2"
+    depends_on:
+      kafka:
+        condition: service_healthy
+      cassandra:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
+      zookeeper:
+        condition: service_healthy
+    networks:
+      - playback-network
+
+  content-metrics-taskmanager:
+    image: playback-content-metrics:latest
+    container_name: playback-content-metrics-tm
+    hostname: content-metrics-taskmanager
+    command: taskmanager
+    environment:
+      FLINK_PROPERTIES: |
+        jobmanager.rpc.address: content-metrics-jobmanager
+        jobmanager.rpc.port: 6123
+        taskmanager.bind-host: 0.0.0.0
+        taskmanager.numberOfTaskSlots: 4
+        taskmanager.memory.process.size: 2g
+        state.backend: rocksdb
+        state.backend.incremental: true
+        state.checkpoints.dir: s3://flink-checkpoints/content-metrics
+        high-availability: zookeeper
+        high-availability.zookeeper.quorum: zookeeper:2181
+        high-availability.zookeeper.path.root: /flink-ha
+        high-availability.cluster-id: content-metrics
+        high-availability.storageDir: s3://flink-ha/content-metrics
+        s3.endpoint: http://minio:9000
+        s3.path.style.access: true
+        s3.access-key: minioadmin
+        s3.secret-key: minioadmin123
+        metrics.reporters: prometheus
+        metrics.reporter.prometheus.factory.class: org.apache.flink.metrics.prometheus.PrometheusReporterFactory
+        metrics.reporter.prometheus.port: 9249
+    depends_on:
+      - content-metrics-jobmanager
+    networks:
+      - playback-network
+
+  # ============================================================
+  # FLINK - SESSION DETECTION JOB
+  # User session detection with 30-minute inactivity gap
+  # ============================================================
+  session-detection-jobmanager:
+    image: playback-session-detection:latest
+    container_name: playback-session-detection-jm
+    hostname: session-detection-jobmanager
+    command: standalone-job --job-classname com.artemsydorovych.playback.flink.job.SessionDetectionJob
+    ports:
+      - "8085:8081"
+      - "9251:9249"
+    environment:
+      FLINK_PROPERTIES: |
+        jobmanager.rpc.address: session-detection-jobmanager
+        jobmanager.rpc.port: 6123
+        jobmanager.bind-host: 0.0.0.0
+        taskmanager.bind-host: 0.0.0.0
+        state.backend: rocksdb
+        state.backend.incremental: true
+        state.checkpoints.dir: s3://flink-checkpoints/session-detection
+        state.savepoints.dir: s3://flink-savepoints/session-detection
+        execution.checkpointing.interval: 60000
+        execution.checkpointing.mode: EXACTLY_ONCE
+        execution.checkpointing.externalized-checkpoint-retention: RETAIN_ON_CANCELLATION
+        high-availability: zookeeper
+        high-availability.zookeeper.quorum: zookeeper:2181
+        high-availability.zookeeper.path.root: /flink-ha
+        high-availability.cluster-id: session-detection
+        high-availability.storageDir: s3://flink-ha/session-detection
+        s3.endpoint: http://minio:9000
+        s3.path.style.access: true
+        s3.access-key: minioadmin
+        s3.secret-key: minioadmin123
+        restart-strategy: exponential-delay
+        restart-strategy.exponential-delay.initial-backoff: 1s
+        restart-strategy.exponential-delay.max-backoff: 60s
+        restart-strategy.exponential-delay.backoff-multiplier: 2.0
+        metrics.reporters: prometheus
+        metrics.reporter.prometheus.factory.class: org.apache.flink.metrics.prometheus.PrometheusReporterFactory
+        metrics.reporter.prometheus.port: 9249
+        taskmanager.numberOfTaskSlots: 4
+      FLINK_KAFKA_BOOTSTRAP_SERVERS: "playback-kafka:29092"
+      FLINK_KAFKA_TOPIC: "playback-events"
+      FLINK_SCHEMA_REGISTRY_URL: "http://playback-schema-registry:8081"
+      FLINK_CASSANDRA_CONTACT_POINTS: "playback-cassandra"
+      FLINK_CASSANDRA_PORT: "9042"
+      FLINK_CASSANDRA_DATACENTER: "datacenter1"
+      FLINK_CASSANDRA_KEYSPACE: "playback"
+      FLINK_PARALLELISM: "4"
+      FLINK_SINK_PARALLELISM: "2"
+    depends_on:
+      kafka:
+        condition: service_healthy
+      cassandra:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
+      zookeeper:
+        condition: service_healthy
+    networks:
+      - playback-network
+
+  session-detection-taskmanager:
+    image: playback-session-detection:latest
+    container_name: playback-session-detection-tm
+    hostname: session-detection-taskmanager
+    command: taskmanager
+    environment:
+      FLINK_PROPERTIES: |
+        jobmanager.rpc.address: session-detection-jobmanager
+        jobmanager.rpc.port: 6123
+        taskmanager.bind-host: 0.0.0.0
+        taskmanager.numberOfTaskSlots: 4
+        taskmanager.memory.process.size: 2g
+        state.backend: rocksdb
+        state.backend.incremental: true
+        state.checkpoints.dir: s3://flink-checkpoints/session-detection
+        high-availability: zookeeper
+        high-availability.zookeeper.quorum: zookeeper:2181
+        high-availability.zookeeper.path.root: /flink-ha
+        high-availability.cluster-id: session-detection
+        high-availability.storageDir: s3://flink-ha/session-detection
+        s3.endpoint: http://minio:9000
+        s3.path.style.access: true
+        s3.access-key: minioadmin
+        s3.secret-key: minioadmin123
+        metrics.reporters: prometheus
+        metrics.reporter.prometheus.factory.class: org.apache.flink.metrics.prometheus.PrometheusReporterFactory
+        metrics.reporter.prometheus.port: 9249
+    depends_on:
+      - session-detection-jobmanager
+    networks:
+      - playback-network
+
+  # ============================================================
+  # FLINK - LAKEHOUSE JOB
+  # Writes all playback events to Apache Iceberg (Data Lake)
+  # ============================================================
+  lakehouse-jobmanager:
+    image: playback-lakehouse:latest
+    container_name: playback-lakehouse-jm
+    hostname: lakehouse-jobmanager
+    command: standalone-job --job-classname com.artemsydorovych.playback.flink.job.LakehouseJob
+    ports:
+      - "8087:8081"
+      - "9252:9249"
+    environment:
+      FLINK_PROPERTIES: |
+        jobmanager.rpc.address: lakehouse-jobmanager
+        jobmanager.rpc.port: 6123
+        jobmanager.bind-host: 0.0.0.0
+        taskmanager.bind-host: 0.0.0.0
+        state.backend: rocksdb
+        state.backend.incremental: true
+        state.checkpoints.dir: s3://flink-checkpoints/lakehouse
+        state.savepoints.dir: s3://flink-savepoints/lakehouse
+        execution.checkpointing.interval: 60000
+        execution.checkpointing.mode: EXACTLY_ONCE
+        execution.checkpointing.externalized-checkpoint-retention: RETAIN_ON_CANCELLATION
+        high-availability: zookeeper
+        high-availability.zookeeper.quorum: zookeeper:2181
+        high-availability.zookeeper.path.root: /flink-ha
+        high-availability.cluster-id: lakehouse
+        high-availability.storageDir: s3://flink-ha/lakehouse
+        s3.endpoint: http://minio:9000
+        s3.path.style.access: true
+        s3.access-key: minioadmin
+        s3.secret-key: minioadmin123
+        restart-strategy: exponential-delay
+        restart-strategy.exponential-delay.initial-backoff: 1s
+        restart-strategy.exponential-delay.max-backoff: 60s
+        restart-strategy.exponential-delay.backoff-multiplier: 2.0
+        metrics.reporters: prometheus
+        metrics.reporter.prometheus.factory.class: org.apache.flink.metrics.prometheus.PrometheusReporterFactory
+        metrics.reporter.prometheus.port: 9249
+        taskmanager.numberOfTaskSlots: 4
+      FLINK_KAFKA_BOOTSTRAP_SERVERS: "playback-kafka:29092"
+      FLINK_KAFKA_TOPIC: "playback-events"
+      FLINK_SCHEMA_REGISTRY_URL: "http://playback-schema-registry:8081"
+      FLINK_PARALLELISM: "4"
+      FLINK_SINK_PARALLELISM: "2"
+      ICEBERG_CATALOG_URI: "http://iceberg-rest:8181"
+      ICEBERG_WAREHOUSE: "s3://warehouse/"
+      S3_ENDPOINT: "http://minio:9000"
+      AWS_ACCESS_KEY_ID: "minioadmin"
+      AWS_SECRET_ACCESS_KEY: "minioadmin123"
+      AWS_REGION: "us-east-1"
+    depends_on:
+      kafka:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
+      zookeeper:
+        condition: service_healthy
+      iceberg-rest:
+        condition: service_started
+    networks:
+      - playback-network
+
+  lakehouse-taskmanager:
+    image: playback-lakehouse:latest
+    container_name: playback-lakehouse-tm
+    hostname: lakehouse-taskmanager
+    command: taskmanager
+    environment:
+      FLINK_PROPERTIES: |
+        jobmanager.rpc.address: lakehouse-jobmanager
+        jobmanager.rpc.port: 6123
+        taskmanager.bind-host: 0.0.0.0
+        taskmanager.numberOfTaskSlots: 4
+        taskmanager.memory.process.size: 2g
+        state.backend: rocksdb
+        state.backend.incremental: true
+        state.checkpoints.dir: s3://flink-checkpoints/lakehouse
+        high-availability: zookeeper
+        high-availability.zookeeper.quorum: zookeeper:2181
+        high-availability.zookeeper.path.root: /flink-ha
+        high-availability.cluster-id: lakehouse
+        high-availability.storageDir: s3://flink-ha/lakehouse
+        s3.endpoint: http://minio:9000
+        s3.path.style.access: true
+        s3.access-key: minioadmin
+        s3.secret-key: minioadmin123
+        metrics.reporters: prometheus
+        metrics.reporter.prometheus.factory.class: org.apache.flink.metrics.prometheus.PrometheusReporterFactory
+        metrics.reporter.prometheus.port: 9249
+      ICEBERG_CATALOG_URI: "http://iceberg-rest:8181"
+      ICEBERG_WAREHOUSE: "s3://warehouse/"
+      S3_ENDPOINT: "http://minio:9000"
+      AWS_ACCESS_KEY_ID: "minioadmin"
+      AWS_SECRET_ACCESS_KEY: "minioadmin123"
+      AWS_REGION: "us-east-1"
+    depends_on:
+      - lakehouse-jobmanager
+    networks:
+      - playback-network
+
+# ============================================================
+# VOLUMES
+# ============================================================
+volumes:
+  kafka-data:
+  cassandra-data:
+  minio-data:
+  zookeeper-data:
+  zookeeper-logs:
+  iceberg-catalog-db-data:
+  prometheus-data:
+    name: playback-prometheus-data
+  grafana-data:
+    name: playback-grafana-data
+
+# ============================================================
+# NETWORKS
+# ============================================================
 networks:
   playback-network:
     driver: bridge

@@ -6,6 +6,8 @@ plugins {
 
 val flinkVersion = "1.18.1"
 val kafkaConnectorVersion = "3.1.0-1.18"
+val icebergVersion = "1.5.0"
+val hadoopVersion = "3.3.4"
 
 /**
  * Production Job Classes (Application Mode - 1 job per container):
@@ -22,6 +24,7 @@ dependencies {
     compileOnly("org.apache.flink:flink-streaming-java:$flinkVersion")
     compileOnly("org.apache.flink:flink-clients:$flinkVersion")
     compileOnly("org.apache.flink:flink-runtime-web:$flinkVersion")
+    compileOnly("org.apache.flink:flink-table-common:$flinkVersion")
 
     // Flink connectors (bundled in fat JAR)
     implementation("org.apache.flink:flink-connector-kafka:$kafkaConnectorVersion")
@@ -30,6 +33,26 @@ dependencies {
 
     // Prometheus metrics (for observability)
     implementation("org.apache.flink:flink-metrics-prometheus:$flinkVersion")
+
+    // Iceberg connector for Data Lakehouse (Phase 9)
+    implementation("org.apache.iceberg:iceberg-flink-runtime-1.18:$icebergVersion")
+    implementation("org.apache.iceberg:iceberg-aws:$icebergVersion")
+    implementation("software.amazon.awssdk:s3:2.20.131")
+    implementation("software.amazon.awssdk:sts:2.20.131")
+    implementation("software.amazon.awssdk:kms:2.20.131")
+    implementation("software.amazon.awssdk:dynamodb:2.20.131")
+    implementation("software.amazon.awssdk:glue:2.20.131")
+    implementation("software.amazon.awssdk:url-connection-client:2.20.131")
+
+    // Hadoop for S3 filesystem (Iceberg uses Hadoop FileSystem)
+    implementation("org.apache.hadoop:hadoop-common:$hadoopVersion") {
+        exclude(group = "org.slf4j")
+        exclude(group = "log4j")
+    }
+    implementation("org.apache.hadoop:hadoop-aws:$hadoopVersion") {
+        exclude(group = "org.slf4j")
+        exclude(group = "log4j")
+    }
 
     // Avro
     implementation("org.apache.avro:avro:1.11.3")
@@ -53,6 +76,9 @@ tasks.shadowJar {
     archiveBaseName.set("playback-flink-jobs")
     archiveClassifier.set("all")
     archiveVersion.set("")
+
+    // Enable zip64 for large JARs (Iceberg + Hadoop dependencies)
+    isZip64 = true
 
     mergeServiceFiles()
 

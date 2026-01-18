@@ -68,6 +68,20 @@ scrape_configs:
     metrics_path: /
     scrape_interval: 10s
 
+  # Lakehouse Job - writes events to Iceberg (Phase 9)
+  - job_name: 'flink-lakehouse'
+    static_configs:
+      - targets: ['lakehouse-jobmanager:9249']
+        labels:
+          job_type: 'lakehouse'
+          component: 'jobmanager'
+      - targets: ['lakehouse-taskmanager:9249']
+        labels:
+          job_type: 'lakehouse'
+          component: 'taskmanager'
+    metrics_path: /
+    scrape_interval: 10s
+
   # ==============================================================
   # INFRASTRUCTURE COMPONENTS
   # ==============================================================
