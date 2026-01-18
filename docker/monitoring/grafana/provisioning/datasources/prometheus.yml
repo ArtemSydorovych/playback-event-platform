@@ -1,6 +1,6 @@
 # Grafana Datasource Configuration
 #
-# Auto-provisions Prometheus as the default datasource
+# Auto-provisions Prometheus and Jaeger datasources
 
 apiVersion: 1
 
@@ -14,3 +14,16 @@ datasources:
     jsonData:
       timeInterval: "15s"
       httpMethod: POST
+
+  - name: Jaeger
+    type: jaeger
+    access: proxy
+    url: http://jaeger:16686
+    editable: false
+    jsonData:
+      tracesToLogsV2:
+        datasourceUid: ''
+        spanStartTimeShift: '-1h'
+        spanEndTimeShift: '1h'
+        filterByTraceID: true
+        filterBySpanID: true

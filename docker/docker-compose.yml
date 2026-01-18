@@ -7,6 +7,7 @@
 # - Apache Iceberg (Data Lakehouse) + Trino
 # - Apache Spark (Batch processing) + Jupyter
 # - Apache Airflow (Orchestration)
+# - Jaeger (Distributed Tracing)
 # - MinIO (S3-compatible storage for checkpoints + warehouse)
 # - Prometheus + Grafana (Observability)
 #
@@ -35,6 +36,7 @@
 #   - MinIO Console: http://localhost:9001
 #   - Prometheus: http://localhost:9090
 #   - Grafana: http://localhost:3000 (admin/admin)
+#   - Jaeger: http://localhost:16686
 
 name: playback-platform
 
@@ -435,6 +437,7 @@ services:
       FLINK_CASSANDRA_KEYSPACE: "playback"
       FLINK_PARALLELISM: "4"
       FLINK_SINK_PARALLELISM: "2"
+      OTEL_EXPORTER_OTLP_ENDPOINT: "http://jaeger:4318"
     depends_on:
       kafka:
         condition: service_healthy
@@ -443,6 +446,8 @@ services:
       minio:
         condition: service_healthy
       zookeeper:
+        condition: service_healthy
+      jaeger:
         condition: service_healthy
     networks:
       - playback-network
@@ -530,6 +535,7 @@ services:
       FLINK_CASSANDRA_KEYSPACE: "playback"
       FLINK_PARALLELISM: "4"
       FLINK_SINK_PARALLELISM: "2"
+      OTEL_EXPORTER_OTLP_ENDPOINT: "http://jaeger:4318"
     depends_on:
       kafka:
         condition: service_healthy
@@ -538,6 +544,8 @@ services:
       minio:
         condition: service_healthy
       zookeeper:
+        condition: service_healthy
+      jaeger:
         condition: service_healthy
     networks:
       - playback-network
@@ -625,6 +633,7 @@ services:
       FLINK_CASSANDRA_KEYSPACE: "playback"
       FLINK_PARALLELISM: "4"
       FLINK_SINK_PARALLELISM: "2"
+      OTEL_EXPORTER_OTLP_ENDPOINT: "http://jaeger:4318"
     depends_on:
       kafka:
         condition: service_healthy
@@ -633,6 +642,8 @@ services:
       minio:
         condition: service_healthy
       zookeeper:
+        condition: service_healthy
+      jaeger:
         condition: service_healthy
     networks:
       - playback-network
@@ -722,6 +733,7 @@ services:
       AWS_ACCESS_KEY_ID: "minioadmin"
       AWS_SECRET_ACCESS_KEY: "minioadmin123"
       AWS_REGION: "us-east-1"
+      OTEL_EXPORTER_OTLP_ENDPOINT: "http://jaeger:4318"
     depends_on:
       kafka:
         condition: service_healthy
@@ -730,6 +742,8 @@ services:
       zookeeper:
         condition: service_healthy
       iceberg-rest:
+        condition: service_started
+      jaeger:
         condition: service_started
     networks:
       - playback-network
@@ -1015,6 +1029,29 @@ services:
         condition: service_completed_successfully
     networks:
       - playback-network
+
+  # ============================================================
+  # JAEGER (Distributed Tracing)
+  # ============================================================
+  jaeger:
+    image: jaegertracing/all-in-one:1.53
+    container_name: playback-jaeger
+    hostname: jaeger
+    ports:
+      - "16686:16686"   # Jaeger UI
+      - "4317:4317"     # OTLP gRPC
+      - "4318:4318"     # OTLP HTTP
+      - "14250:14250"   # gRPC for Jaeger agent
+    environment:
+      COLLECTOR_OTLP_ENABLED: "true"
+    networks:
+      - playback-network
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://localhost:16686"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
 
 # ============================================================
 # VOLUMES

@@ -11,8 +11,20 @@ RUN mkdir -p /opt/flink/plugins/s3-fs-hadoop && \
     curl -fsSL https://repo1.maven.org/maven2/org/apache/flink/flink-s3-fs-hadoop/1.18.1/flink-s3-fs-hadoop-1.18.1.jar \
     -o /opt/flink/plugins/s3-fs-hadoop/flink-s3-fs-hadoop-1.18.1.jar
 
+# Download OpenTelemetry Java Agent for automatic instrumentation
+RUN curl -fsSL https://github.com/open-telemetry/opentelemetry-java-instrumentation/releases/download/v2.1.0/opentelemetry-javaagent.jar \
+    -o /opt/flink/opentelemetry-javaagent.jar
+
 # Copy job JAR
 COPY flink-jobs/build/libs/playback-flink-jobs-all.jar /opt/flink/usrlib/
+
+# Configure OpenTelemetry agent (use HTTP endpoint 4318, not gRPC 4317)
+ENV JAVA_TOOL_OPTIONS="-javaagent:/opt/flink/opentelemetry-javaagent.jar" \
+    OTEL_SERVICE_NAME="playback-lakehouse" \
+    OTEL_TRACES_EXPORTER="otlp" \
+    OTEL_EXPORTER_OTLP_PROTOCOL="http/protobuf" \
+    OTEL_METRICS_EXPORTER="none" \
+    OTEL_LOGS_EXPORTER="none"
 
 # Job-specific labels
 LABEL job.name="playback-lakehouse" \
