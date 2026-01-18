@@ -6,6 +6,7 @@
 # - Flink (4 independent jobs in Application Mode)
 # - Apache Iceberg (Data Lakehouse) + Trino
 # - Apache Spark (Batch processing) + Jupyter
+# - Apache Airflow (Orchestration)
 # - MinIO (S3-compatible storage for checkpoints + warehouse)
 # - Prometheus + Grafana (Observability)
 #
@@ -29,6 +30,7 @@
 #   - Spark History: http://localhost:18080
 #   - Jupyter: http://localhost:8888 (token: playback)
 #   - Trino: http://localhost:8089
+#   - Airflow: http://localhost:8091 (admin/admin)
 #   - Iceberg REST: http://localhost:8181
 #   - MinIO Console: http://localhost:9001
 #   - Prometheus: http://localhost:9090
@@ -914,9 +916,111 @@ services:
       - playback-network
 
 # ============================================================
+  # AIRFLOW (Orchestration)
+  # ============================================================
+  airflow-postgres:
+    image: postgres:15-alpine
+    container_name: playback-airflow-postgres
+    hostname: airflow-postgres
+    environment:
+      POSTGRES_USER: airflow
+      POSTGRES_PASSWORD: airflow123
+      POSTGRES_DB: airflow
+    volumes:
+      - airflow-postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U airflow -d airflow"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    networks:
+      - playback-network
+
+  airflow-init:
+    image: apache/airflow:2.8.1-python3.11
+    container_name: playback-airflow-init
+    environment:
+      AIRFLOW__CORE__EXECUTOR: LocalExecutor
+      AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://airflow:airflow123@airflow-postgres:5432/airflow
+      AIRFLOW__CORE__FERNET_KEY: "46BKJoQYlPPOexq0OhDZnIlNepKFf87WFwLbfzqDDho="
+      _AIRFLOW_DB_MIGRATE: "true"
+      _AIRFLOW_WWW_USER_CREATE: "true"
+      _AIRFLOW_WWW_USER_USERNAME: admin
+      _AIRFLOW_WWW_USER_PASSWORD: admin
+    entrypoint: /bin/bash
+    command:
+      - -c
+      - |
+        airflow db migrate
+        airflow users create --username admin --password admin --firstname Admin --lastname User --role Admin --email admin@example.com || true
+        echo "Airflow initialized!"
+    depends_on:
+      airflow-postgres:
+        condition: service_healthy
+    networks:
+      - playback-network
+
+  airflow-webserver:
+    image: apache/airflow:2.8.1-python3.11
+    container_name: playback-airflow-webserver
+    hostname: airflow-webserver
+    ports:
+      - "8091:8080"
+    environment:
+      AIRFLOW__CORE__EXECUTOR: LocalExecutor
+      AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://airflow:airflow123@airflow-postgres:5432/airflow
+      AIRFLOW__CORE__FERNET_KEY: "46BKJoQYlPPOexq0OhDZnIlNepKFf87WFwLbfzqDDho="
+      AIRFLOW__WEBSERVER__SECRET_KEY: "playback-secret-key-change-in-production"
+      AIRFLOW__CORE__LOAD_EXAMPLES: "false"
+      AIRFLOW__WEBSERVER__EXPOSE_CONFIG: "true"
+      AIRFLOW__API__AUTH_BACKENDS: "airflow.api.auth.backend.basic_auth"
+    volumes:
+      - ./airflow/dags:/opt/airflow/dags:ro
+      - ./airflow/logs:/opt/airflow/logs
+      - ./airflow/plugins:/opt/airflow/plugins:ro
+      - /var/run/docker.sock:/var/run/docker.sock
+    user: root
+    command: webserver
+    depends_on:
+      airflow-init:
+        condition: service_completed_successfully
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 60s
+    networks:
+      - playback-network
+
+  airflow-scheduler:
+    image: apache/airflow:2.8.1-python3.11
+    container_name: playback-airflow-scheduler
+    hostname: airflow-scheduler
+    environment:
+      AIRFLOW__CORE__EXECUTOR: LocalExecutor
+      AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://airflow:airflow123@airflow-postgres:5432/airflow
+      AIRFLOW__CORE__FERNET_KEY: "46BKJoQYlPPOexq0OhDZnIlNepKFf87WFwLbfzqDDho="
+      AIRFLOW__CORE__LOAD_EXAMPLES: "false"
+    volumes:
+      - ./airflow/dags:/opt/airflow/dags:ro
+      - ./airflow/logs:/opt/airflow/logs
+      - ./airflow/plugins:/opt/airflow/plugins:ro
+      - /var/run/docker.sock:/var/run/docker.sock
+    user: root
+    command: scheduler
+    depends_on:
+      airflow-init:
+        condition: service_completed_successfully
+    networks:
+      - playback-network
+
+# ============================================================
 # VOLUMES
 # ============================================================
 volumes:
+  airflow-postgres-data:
   spark-jars:
   spark-ivy-cache:
   kafka-data:
